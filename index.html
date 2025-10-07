@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deepfake 检测平台</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <i class="fas fa-shield-alt"></i>
+                <span>Deepfake 检测平台</span>
+            </div>
+            <div class="nav-menu">
+                <a href="#detection" class="nav-link active" data-section="detection">
+                    <i class="fas fa-search"></i> 检测
+                </a>
+                <a href="#history" class="nav-link" data-section="history">
+                    <i class="fas fa-history"></i> 历史
+                </a>
+                <a href="#models" class="nav-link" data-section="models">
+                    <i class="fas fa-brain"></i> 模型
+                </a>
+                <a href="#statistics" class="nav-link" data-section="statistics">
+                    <i class="fas fa-chart-bar"></i> 统计
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+        <!-- 检测页面 -->
+        <section id="detection" class="content-section active">
+            <div class="container">
+                <div class="section-header">
+                    <h1><i class="fas fa-search"></i> Deepfake 检测</h1>
+                    <p>上传图片或视频文件进行深度伪造检测</p>
+                </div>
+
+                <div class="detection-container">
+                    <!-- 文件上传区域 -->
+                    <div class="upload-section">
+                        <div class="upload-area" id="uploadArea">
+                            <div class="upload-content">
+                                <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                                <h3>拖拽文件到此处或点击选择</h3>
+                                <p>支持 JPG, PNG, MP4, AVI, MOV 格式</p>
+                                <p class="upload-hint">最大文件大小: 100MB</p>
+                                <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
+                                <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                                    选择文件
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 模型选择 -->
+                        <div class="model-selection">
+                            <label for="modelSelect">选择检测模型:</label>
+                            <select id="modelSelect" class="form-control">
+                                <option value="vgg">VGG (默认)</option>
+                                <option value="lrcn">LRCN</option>
+                                <option value="swin">Swin Transformer</option>
+                                <option value="vit">Vision Transformer</option>
+                                <option value="resnet">ResNet</option>
+                            </select>
+                        </div>
+
+                        <!-- 检测按钮 -->
+                        <button id="detectBtn" class="btn btn-success btn-large" disabled>
+                            <i class="fas fa-play"></i> 开始检测
+                        </button>
+                    </div>
+
+                    <!-- 结果展示区域 -->
+                    <div class="results-section" id="resultsSection" style="display: none;">
+                        <h3>检测结果</h3>
+                        <div id="resultsContainer"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 历史记录页面 -->
+        <section id="history" class="content-section">
+            <div class="container">
+                <div class="section-header">
+                    <h1><i class="fas fa-history"></i> 检测历史</h1>
+                    <p>查看所有检测记录和结果</p>
+                </div>
+
+                <div class="history-filters">
+                    <div class="filter-group">
+                        <label>筛选条件:</label>
+                        <select id="historyFilter" class="form-control">
+                            <option value="">全部</option>
+                            <option value="real">真实</option>
+                            <option value="fake">伪造</option>
+                        </select>
+                        <select id="modelFilter" class="form-control">
+                            <option value="">所有模型</option>
+                            <option value="vgg">VGG</option>
+                            <option value="lrcn">LRCN</option>
+                            <option value="swin">Swin</option>
+                            <option value="vit">ViT</option>
+                            <option value="resnet">ResNet</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="loadHistory()">
+                            <i class="fas fa-filter"></i> 筛选
+                        </button>
+                    </div>
+                </div>
+
+                <div class="history-table-container">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>文件名</th>
+                                <th>模型</th>
+                                <th>结果</th>
+                                <th>置信度</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody">
+                            <tr>
+                                <td colspan="6" class="loading">加载中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- 模型管理页面 -->
+        <section id="models" class="content-section">
+            <div class="container">
+                <div class="section-header">
+                    <h1><i class="fas fa-brain"></i> 模型管理</h1>
+                    <p>管理和查看可用的检测模型</p>
+                </div>
+
+                <div class="models-grid" id="modelsGrid">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 统计页面 -->
+        <section id="statistics" class="content-section">
+            <div class="container">
+                <div class="section-header">
+                    <h1><i class="fas fa-chart-bar"></i> 统计信息</h1>
+                    <p>查看平台使用统计和检测性能</p>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-file-upload"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="totalDetections">-</h3>
+                            <p>总检测次数</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="realCount">-</h3>
+                            <p>真实内容</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="fakeCount">-</h3>
+                            <p>伪造内容</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">
+                            <i class="fas fa-percentage"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h3 id="accuracy">-</h3>
+                            <p>平均准确率</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <h3>检测趋势</h3>
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 加载提示 -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+            <p>处理中，请稍候...</p>
+        </div>
+    </div>
+
+    <!-- 通知提示 -->
+    <div class="notification" id="notification"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

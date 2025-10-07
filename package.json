@@ -1,0 +1,20 @@
+{
+  "name": "deepfake-detection-frontend",
+  "version": "1.0.0",
+  "description": "A modern, clean frontend for deepfake detection platform",
+  "main": "index.html",
+  "scripts": {
+    "dev": "live-server --port=3000 --host=0.0.0.0",
+    "build": "echo 'Build completed - static files ready'",
+    "start": "live-server --port=3000 --host=0.0.0.0"
+  },
+  "keywords": ["deepfake", "detection", "frontend", "web"],
+  "author": "Deepfake Detection Team",
+  "license": "MIT",
+  "devDependencies": {
+    "live-server": "^1.2.2"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}
