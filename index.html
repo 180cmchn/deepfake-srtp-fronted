@@ -4,218 +4,490 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Deepfake 检测平台</title>
-    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            200: '#bfdbfe',
+                            300: '#93c5fd',
+                            400: '#60a5fa',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            800: '#1e40af',
+                            900: '#1e3a8a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+        
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .sidebar-item {
+            transition: all 0.2s ease;
+        }
+        
+        .sidebar-item:hover {
+            transform: translateX(2px);
+        }
+        
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+    </style>
 </head>
-<body>
-    <!-- 导航栏 -->
-    <nav class="navbar">
-        <div class="nav-container">
-            <div class="nav-brand">
-                <i class="fas fa-shield-alt"></i>
-                <span>Deepfake 检测平台</span>
+<body class="bg-gray-50">
+    <!-- App Layout Container -->
+    <div class="flex h-screen bg-gray-50">
+        <!-- Sidebar -->
+        <div class="flex flex-col w-64 bg-white border-r border-gray-200">
+            <!-- Logo -->
+            <div class="flex items-center h-16 px-6 border-b border-gray-200">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-shield-alt text-white text-sm"></i>
+                    </div>
+                    <span class="ml-3 text-lg font-semibold text-gray-900">
+                        Deepfake 检测平台
+                    </span>
+                </div>
             </div>
-            <div class="nav-menu">
-                <a href="#detection" class="nav-link active" data-section="detection">
-                    <i class="fas fa-search"></i> 检测
+
+            <!-- Navigation -->
+            <nav class="flex-1 px-4 py-6 space-y-1">
+                <a href="#detection" class="sidebar-item nav-link flex items-center px-3 py-2 text-sm font-medium rounded-md bg-primary-100 text-primary-700 border-r-2 border-primary-700" data-section="detection">
+                    <i class="fas fa-search mr-3 h-5 w-5 text-primary-700"></i>
+                    检测
                 </a>
-                <a href="#history" class="nav-link" data-section="history">
-                    <i class="fas fa-history"></i> 历史
+                <a href="#history" class="sidebar-item nav-link flex items-center px-3 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-50 hover:text-gray-900" data-section="history">
+                    <i class="fas fa-history mr-3 h-5 w-5 text-gray-400"></i>
+                    历史记录
                 </a>
-                <a href="#models" class="nav-link" data-section="models">
-                    <i class="fas fa-brain"></i> 模型
+                <a href="#models" class="sidebar-item nav-link flex items-center px-3 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-50 hover:text-gray-900" data-section="models">
+                    <i class="fas fa-brain mr-3 h-5 w-5 text-gray-400"></i>
+                    模型管理
                 </a>
-                <a href="#statistics" class="nav-link" data-section="statistics">
-                    <i class="fas fa-chart-bar"></i> 统计
+                <a href="#training" class="sidebar-item nav-link flex items-center px-3 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-50 hover:text-gray-900" data-section="training">
+                    <i class="fas fa-cogs mr-3 h-5 w-5 text-gray-400"></i>
+                    模型训练
                 </a>
+                <a href="#statistics" class="sidebar-item nav-link flex items-center px-3 py-2 text-sm font-medium rounded-md text-gray-600 hover:bg-gray-50 hover:text-gray-900" data-section="statistics">
+                    <i class="fas fa-chart-bar mr-3 h-5 w-5 text-gray-400"></i>
+                    统计信息
+                </a>
+            </nav>
+
+            <!-- Footer -->
+            <div class="p-4 border-t border-gray-200">
+                <div class="text-xs text-gray-500">
+                    Deepfake Detection Platform v1.0.0
+                </div>
             </div>
         </div>
-    </nav>
 
-    <!-- 主内容区 -->
-    <main class="main-content">
-        <!-- 检测页面 -->
-        <section id="detection" class="content-section active">
-            <div class="container">
-                <div class="section-header">
-                    <h1><i class="fas fa-search"></i> Deepfake 检测</h1>
-                    <p>上传图片或视频文件进行深度伪造检测</p>
+        <!-- Main Content Area -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-200 px-6 py-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-2xl font-semibold text-gray-900" id="pageTitle">Deepfake 检测</h1>
+                        <p class="text-sm text-gray-500 mt-1" id="pageSubtitle">上传图片或视频文件进行深度伪造检测</p>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <button class="p-2 text-gray-400 hover:text-gray-600 transition-colors">
+                            <i class="fas fa-bell"></i>
+                        </button>
+                        <div class="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center">
+                            <i class="fas fa-user text-white text-sm"></i>
+                        </div>
+                    </div>
                 </div>
+            </header>
 
-                <div class="detection-container">
-                    <!-- 文件上传区域 -->
-                    <div class="upload-section">
-                        <div class="upload-area" id="uploadArea">
-                            <div class="upload-content">
-                                <i class="fas fa-cloud-upload-alt upload-icon"></i>
-                                <h3>拖拽文件到此处或点击选择</h3>
-                                <p>支持 JPG, PNG, MP4, AVI, MOV 格式</p>
-                                <p class="upload-hint">最大文件大小: 100MB</p>
-                                <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
-                                <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
-                                    选择文件
+            <!-- Main Content -->
+            <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
+                <!-- 检测页面 -->
+                <section id="detection" class="content-section fade-in">
+                    <div class="max-w-7xl mx-auto">
+                        <!-- Stats Cards -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-600">今日检测</p>
+                                        <p class="text-2xl font-bold text-gray-900">24</p>
+                                    </div>
+                                    <div class="p-3 rounded-full bg-blue-100 text-blue-600">
+                                        <i class="fas fa-file-upload h-6 w-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-600">检测成功率</p>
+                                        <p class="text-2xl font-bold text-gray-900">98.5%</p>
+                                    </div>
+                                    <div class="p-3 rounded-full bg-green-100 text-green-600">
+                                        <i class="fas fa-check-circle h-6 w-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-600">平均处理时间</p>
+                                        <p class="text-2xl font-bold text-gray-900">2.3s</p>
+                                    </div>
+                                    <div class="p-3 rounded-full bg-yellow-100 text-yellow-600">
+                                        <i class="fas fa-clock h-6 w-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-600">活跃模型</p>
+                                        <p class="text-2xl font-bold text-gray-900">5</p>
+                                    </div>
+                                    <div class="p-3 rounded-full bg-purple-100 text-purple-600">
+                                        <i class="fas fa-brain h-6 w-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Detection Interface -->
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                            <h2 class="text-lg font-semibold text-gray-900 mb-6">文件检测</h2>
+                            
+                            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                <!-- Upload Section -->
+                                <div>
+                                    <div class="upload-area border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-primary-500 transition-colors cursor-pointer bg-gray-50" id="uploadArea">
+                                        <div class="upload-content">
+                                            <i class="fas fa-cloud-upload-alt upload-icon text-4xl text-primary-500 mb-4"></i>
+                                            <h3 class="text-lg font-medium text-gray-900 mb-2">拖拽文件到此处或点击选择</h3>
+                                            <p class="text-gray-600 mb-2">支持 JPG, PNG, MP4, AVI, MOV 格式</p>
+                                            <p class="text-sm text-gray-500 mb-4">最大文件大小: 100MB</p>
+                                            <input type="file" id="fileInput" accept="image/*,video/*" multiple class="hidden">
+                                            <button class="bg-primary-600 text-white px-4 py-2 rounded-md hover:bg-primary-700 transition-colors" onclick="document.getElementById('fileInput').click()">
+                                                选择文件
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Model Selection -->
+                                    <div class="mt-6">
+                                        <label for="modelSelect" class="block text-sm font-medium text-gray-700 mb-2">选择检测模型:</label>
+                                        <select id="modelSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                            <option value="vgg">VGG (默认)</option>
+                                            <option value="lrcn">LRCN</option>
+                                            <option value="swin">Swin Transformer</option>
+                                            <option value="vit">Vision Transformer</option>
+                                            <option value="resnet">ResNet</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Detect Button -->
+                                    <button id="detectBtn" class="w-full mt-6 bg-green-600 text-white px-4 py-3 rounded-md hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+                                        <i class="fas fa-play mr-2"></i> 开始检测
+                                    </button>
+                                </div>
+
+                                <!-- Results Section -->
+                                <div>
+                                    <div id="resultsSection" class="hidden">
+                                        <h3 class="text-lg font-medium text-gray-900 mb-4">检测结果</h3>
+                                        <div id="resultsContainer" class="space-y-4"></div>
+                                    </div>
+                                    
+                                    <!-- Quick Tips -->
+                                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                        <h4 class="text-sm font-medium text-blue-900 mb-2">
+                                            <i class="fas fa-info-circle mr-2"></i>使用提示
+                                        </h4>
+                                        <ul class="text-sm text-blue-800 space-y-1">
+                                            <li>• 支持批量上传多个文件</li>
+                                            <li>• 检测结果将在几秒钟内显示</li>
+                                            <li>• 可以查看详细的检测报告</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 历史记录页面 -->
+                <section id="history" class="content-section hidden">
+                    <div class="max-w-7xl mx-auto">
+                        <!-- Filters -->
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+                            <div class="flex flex-wrap items-center gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">筛选条件:</label>
+                                    <select id="historyFilter" class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                                        <option value="">全部</option>
+                                        <option value="real">真实</option>
+                                        <option value="fake">伪造</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">模型:</label>
+                                    <select id="modelFilter" class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                                        <option value="">所有模型</option>
+                                        <option value="vgg">VGG</option>
+                                        <option value="lrcn">LRCN</option>
+                                        <option value="swin">Swin</option>
+                                        <option value="vit">ViT</option>
+                                        <option value="resnet">ResNet</option>
+                                    </select>
+                                </div>
+                                <div class="flex-1"></div>
+                                <button class="bg-primary-600 text-white px-4 py-2 rounded-md hover:bg-primary-700 transition-colors mt-6" onclick="loadHistory()">
+                                    <i class="fas fa-filter mr-2"></i> 筛选
                                 </button>
                             </div>
                         </div>
 
-                        <!-- 模型选择 -->
-                        <div class="model-selection">
-                            <label for="modelSelect">选择检测模型:</label>
-                            <select id="modelSelect" class="form-control">
-                                <option value="vgg">VGG (默认)</option>
-                                <option value="lrcn">LRCN</option>
-                                <option value="swin">Swin Transformer</option>
-                                <option value="vit">Vision Transformer</option>
-                                <option value="resnet">ResNet</option>
-                            </select>
-                        </div>
-
-                        <!-- 检测按钮 -->
-                        <button id="detectBtn" class="btn btn-success btn-large" disabled>
-                            <i class="fas fa-play"></i> 开始检测
-                        </button>
-                    </div>
-
-                    <!-- 结果展示区域 -->
-                    <div class="results-section" id="resultsSection" style="display: none;">
-                        <h3>检测结果</h3>
-                        <div id="resultsContainer"></div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- 历史记录页面 -->
-        <section id="history" class="content-section">
-            <div class="container">
-                <div class="section-header">
-                    <h1><i class="fas fa-history"></i> 检测历史</h1>
-                    <p>查看所有检测记录和结果</p>
-                </div>
-
-                <div class="history-filters">
-                    <div class="filter-group">
-                        <label>筛选条件:</label>
-                        <select id="historyFilter" class="form-control">
-                            <option value="">全部</option>
-                            <option value="real">真实</option>
-                            <option value="fake">伪造</option>
-                        </select>
-                        <select id="modelFilter" class="form-control">
-                            <option value="">所有模型</option>
-                            <option value="vgg">VGG</option>
-                            <option value="lrcn">LRCN</option>
-                            <option value="swin">Swin</option>
-                            <option value="vit">ViT</option>
-                            <option value="resnet">ResNet</option>
-                        </select>
-                        <button class="btn btn-primary" onclick="loadHistory()">
-                            <i class="fas fa-filter"></i> 筛选
-                        </button>
-                    </div>
-                </div>
-
-                <div class="history-table-container">
-                    <table class="history-table">
-                        <thead>
-                            <tr>
-                                <th>时间</th>
-                                <th>文件名</th>
-                                <th>模型</th>
-                                <th>结果</th>
-                                <th>置信度</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="historyTableBody">
-                            <tr>
-                                <td colspan="6" class="loading">加载中...</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-
-        <!-- 模型管理页面 -->
-        <section id="models" class="content-section">
-            <div class="container">
-                <div class="section-header">
-                    <h1><i class="fas fa-brain"></i> 模型管理</h1>
-                    <p>管理和查看可用的检测模型</p>
-                </div>
-
-                <div class="models-grid" id="modelsGrid">
-                    <div class="loading">加载中...</div>
-                </div>
-            </div>
-        </section>
-
-        <!-- 统计页面 -->
-        <section id="statistics" class="content-section">
-            <div class="container">
-                <div class="section-header">
-                    <h1><i class="fas fa-chart-bar"></i> 统计信息</h1>
-                    <p>查看平台使用统计和检测性能</p>
-                </div>
-
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-icon">
-                            <i class="fas fa-file-upload"></i>
-                        </div>
-                        <div class="stat-content">
-                            <h3 id="totalDetections">-</h3>
-                            <p>总检测次数</p>
+                        <!-- History Table -->
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">时间</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">文件名</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">模型</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">结果</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">置信度</th>
+                                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200" id="historyTableBody">
+                                        <tr>
+                                            <td colspan="6" class="px-6 py-12 text-center text-gray-500">
+                                                <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                                                <p>加载中...</p>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-icon">
-                            <i class="fas fa-check-circle"></i>
-                        </div>
-                        <div class="stat-content">
-                            <h3 id="realCount">-</h3>
-                            <p>真实内容</p>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon">
-                            <i class="fas fa-exclamation-triangle"></i>
-                        </div>
-                        <div class="stat-content">
-                            <h3 id="fakeCount">-</h3>
-                            <p>伪造内容</p>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon">
-                            <i class="fas fa-percentage"></i>
-                        </div>
-                        <div class="stat-content">
-                            <h3 id="accuracy">-</h3>
-                            <p>平均准确率</p>
-                        </div>
-                    </div>
-                </div>
+                </section>
 
-                <div class="chart-container">
-                    <h3>检测趋势</h3>
-                    <canvas id="trendChart"></canvas>
-                </div>
-            </div>
-        </section>
-    </main>
+                <!-- 模型管理页面 -->
+                <section id="models" class="content-section hidden">
+                    <div class="max-w-7xl mx-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="modelsGrid">
+                            <div class="col-span-full text-center py-12 text-gray-500">
+                                <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                                <p>加载中...</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
 
-    <!-- 加载提示 -->
-    <div class="loading-overlay" id="loadingOverlay">
-        <div class="loading-spinner">
-            <i class="fas fa-spinner fa-spin"></i>
-            <p>处理中，请稍候...</p>
+                <!-- 训练页面 -->
+                <section id="training" class="content-section hidden">
+                    <div class="max-w-7xl mx-auto">
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <!-- Create Training Job -->
+                            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                                <h2 class="text-lg font-semibold text-gray-900 mb-6">创建新的训练任务</h2>
+                                <form id="trainingForm" class="space-y-4">
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label for="trainingModelType" class="block text-sm font-medium text-gray-700 mb-1">模型类型:</label>
+                                            <select id="trainingModelType" name="model_type" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" required>
+                                                <option value="">选择模型类型</option>
+                                                <option value="vgg">VGG</option>
+                                                <option value="lrcn">LRCN</option>
+                                                <option value="swin">Swin Transformer</option>
+                                                <option value="vit">Vision Transformer</option>
+                                                <option value="resnet">ResNet</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="trainingDataset" class="block text-sm font-medium text-gray-700 mb-1">数据集:</label>
+                                            <select id="trainingDataset" name="dataset" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" required>
+                                                <option value="">选择数据集</option>
+                                                <option value="celeb_df">Celeb-DF</option>
+                                                <option value="faceforensics">FaceForensics++</option>
+                                                <option value="dfdc">DFDC</option>
+                                                <option value="custom">自定义数据集</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label for="trainingEpochs" class="block text-sm font-medium text-gray-700 mb-1">训练轮数:</label>
+                                            <input type="number" id="trainingEpochs" name="epochs" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" value="10" min="1" max="100" required>
+                                        </div>
+                                        <div>
+                                            <label for="trainingBatchSize" class="block text-sm font-medium text-gray-700 mb-1">批次大小:</label>
+                                            <input type="number" id="trainingBatchSize" name="batch_size" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" value="32" min="1" max="128" required>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label for="learningRate" class="block text-sm font-medium text-gray-700 mb-1">学习率:</label>
+                                            <input type="number" id="learningRate" name="learning_rate" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" value="0.001" min="0.0001" max="0.1" step="0.0001" required>
+                                        </div>
+                                        <div>
+                                            <label for="trainingDescription" class="block text-sm font-medium text-gray-700 mb-1">描述:</label>
+                                            <input type="text" id="trainingDescription" name="description" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="训练任务描述（可选）">
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="w-full bg-primary-600 text-white px-4 py-2 rounded-md hover:bg-primary-700 transition-colors">
+                                        <i class="fas fa-play mr-2"></i> 开始训练
+                                    </button>
+                                </form>
+                            </div>
+
+                            <!-- Training Jobs List -->
+                            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                                <div class="flex justify-between items-center mb-6">
+                                    <h2 class="text-lg font-semibold text-gray-900">训练任务</h2>
+                                    <div class="flex items-center gap-2">
+                                        <select id="trainingStatusFilter" class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500">
+                                            <option value="">全部状态</option>
+                                            <option value="pending">等待中</option>
+                                            <option value="running">训练中</option>
+                                            <option value="completed">已完成</option>
+                                            <option value="failed">失败</option>
+                                            <option value="cancelled">已取消</option>
+                                        </select>
+                                        <button class="bg-gray-600 text-white px-3 py-2 rounded-md hover:bg-gray-700 transition-colors" onclick="loadTrainingJobs()">
+                                            <i class="fas fa-refresh"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="space-y-4" id="trainingList">
+                                    <div class="text-center py-8 text-gray-500">
+                                        <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                                        <p>加载中...</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 统计页面 -->
+                <section id="statistics" class="content-section hidden">
+                    <div class="max-w-7xl mx-auto">
+                        <!-- Stats Grid -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-600">总检测次数</p>
+                                        <p class="text-2xl font-bold text-gray-900" id="totalDetections">-</p>
+                                    </div>
+                                    <div class="p-3 rounded-full bg-blue-100 text-blue-600">
+                                        <i class="fas fa-file-upload h-6 w-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-600">真实内容</p>
+                                        <p class="text-2xl font-bold text-gray-900" id="realCount">-</p>
+                                    </div>
+                                    <div class="p-3 rounded-full bg-green-100 text-green-600">
+                                        <i class="fas fa-check-circle h-6 w-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-600">伪造内容</p>
+                                        <p class="text-2xl font-bold text-gray-900" id="fakeCount">-</p>
+                                    </div>
+                                    <div class="p-3 rounded-full bg-red-100 text-red-600">
+                                        <i class="fas fa-exclamation-triangle h-6 w-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-600">平均准确率</p>
+                                        <p class="text-2xl font-bold text-gray-900" id="accuracy">-</p>
+                                    </div>
+                                    <div class="p-3 rounded-full bg-yellow-100 text-yellow-600">
+                                        <i class="fas fa-percentage h-6 w-6"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Chart Container -->
+                        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                            <h3 class="text-lg font-semibold text-gray-900 mb-6">检测趋势</h3>
+                            <div class="h-80">
+                                <canvas id="trendChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
         </div>
     </div>
 
-    <!-- 通知提示 -->
-    <div class="notification" id="notification"></div>
+    <!-- Loading Overlay -->
+    <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden" id="loadingOverlay">
+        <div class="bg-white rounded-lg p-6 text-center">
+            <i class="fas fa-spinner fa-spin text-3xl text-primary-600 mb-4"></i>
+            <p class="text-gray-900">处理中，请稍候...</p>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div class="fixed top-4 right-4 p-4 rounded-lg text-white font-medium shadow-lg transform translate-x-full transition-transform z-50" id="notification"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
