@@ -279,43 +279,82 @@ async function loadHistory() {
         // 模拟加载历史记录
         await new Promise(resolve => setTimeout(resolve, 500));
         
-        const history = JSON.parse(localStorage.getItem('detectionHistory') || '[]');
+        let history = JSON.parse(localStorage.getItem('detectionHistory') || '[]');
+        
+        // 获取筛选条件
+        const historyFilter = document.getElementById('historyFilter');
+        const modelFilter = document.getElementById('modelFilter');
+        
+        const resultFilter = historyFilter ? historyFilter.value : '';
+        const modelFilterValue = modelFilter ? modelFilter.value : '';
+        
+        // 应用筛选条件
+        if (resultFilter || modelFilterValue) {
+            history = history.filter(record => {
+                const matchResult = !resultFilter || record.result === resultFilter;
+                const matchModel = !modelFilterValue || record.model === modelFilterValue;
+                return matchResult && matchModel;
+            });
+        }
         
         if (history.length === 0) {
             tbody.innerHTML = `
                 <tr>
                     <td colspan="6" class="px-6 py-12 text-center text-gray-500">
                         <i class="fas fa-inbox text-4xl mb-2"></i>
-                        <p>暂无检测记录</p>
+                        <p>${resultFilter || modelFilterValue ? '没有符合筛选条件的记录' : '暂无检测记录'}</p>
                     </td>
                 </tr>
             `;
             return;
         }
         
-        const rows = history.map(record => `
-            <tr class="hover:bg-gray-50">
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${record.timestamp}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${record.filename}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${record.model}</td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        record.result === 'real' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
-                    }">
-                        ${record.result === 'real' ? '真实' : '伪造'}
-                    </span>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${record.confidence}%</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button class="text-primary-600 hover:text-primary-900 mr-3">查看</button>
-                    <button class="text-gray-600 hover:text-gray-900">下载</button>
-                </td>
-            </tr>
-        `).join('');
+        const rows = history.map((record, index) => {
+            // 获取原始索引，用于查看和下载功能
+            const originalHistory = JSON.parse(localStorage.getItem('detectionHistory') || '[]');
+            const originalIndex = originalHistory.findIndex(item => 
+                item.timestamp === record.timestamp && 
+                item.filename === record.filename &&
+                item.model === record.model
+            );
+            
+            return `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${record.timestamp}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${record.filename}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${record.model}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            record.result === 'real' 
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-red-100 text-red-800'
+                        }">
+                            ${record.result === 'real' ? '真实' : '伪造'}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${record.confidence}%</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button class="text-primary-600 hover:text-primary-900 mr-3" onclick="viewHistoryDetail(${originalIndex})">查看</button>
+                        <button class="text-gray-600 hover:text-gray-900" onclick="downloadReport(${originalIndex})">下载</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
         
         tbody.innerHTML = rows;
+        
+        // 显示筛选结果提示
+        if (resultFilter || modelFilterValue) {
+            const filterText = [];
+            if (resultFilter) {
+                filterText.push(`结果: ${resultFilter === 'real' ? '真实' : '伪造'}`);
+            }
+            if (modelFilterValue) {
+                filterText.push(`模型: ${modelFilterValue}`);
+            }
+            showNotification(`已应用筛选条件: ${filterText.join(', ')}，找到 ${history.length} 条记录`, 'info');
+        }
+        
     } catch (error) {
         tbody.innerHTML = `
             <tr>
@@ -757,6 +796,167 @@ window.addEventListener('resize', function() {
     }
 });
 
+// 查看历史记录详情
+function viewHistoryDetail(index) {
+    const history = JSON.parse(localStorage.getItem('detectionHistory') || '[]');
+    const record = history[index];
+    
+    if (!record) {
+        showNotification('记录不存在', 'error');
+        return;
+    }
+    
+    // 创建详情模态框
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-start mb-4">
+                <h2 class="text-xl font-semibold text-gray-900">检测详情</h2>
+                <button onclick="this.closest('.fixed').remove()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">文件名</label>
+                        <p class="text-sm text-gray-900">${record.filename}</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">检测时间</label>
+                        <p class="text-sm text-gray-900">${record.timestamp}</p>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">使用模型</label>
+                        <p class="text-sm text-gray-900">${record.model}</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">检测结果</label>
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            record.result === 'real' 
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-red-100 text-red-800'
+                        }">
+                            ${record.result === 'real' ? '真实' : '伪造'}
+                        </span>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">置信度</label>
+                    <div class="flex items-center space-x-3">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2">
+                            <div class="bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 h-2 rounded-full" 
+                                 style="width: ${record.confidence}%"></div>
+                        </div>
+                        <span class="text-sm font-medium text-gray-900">${record.confidence}%</span>
+                    </div>
+                </div>
+                
+                ${record.processingTime ? `
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">处理时间</label>
+                    <p class="text-sm text-gray-900">${record.processingTime} 秒</p>
+                </div>
+                ` : ''}
+                
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h3 class="text-sm font-medium text-gray-900 mb-2">检测分析</h3>
+                    <p class="text-sm text-gray-600">
+                        ${record.result === 'real' 
+                            ? '经过深度学习模型分析，该文件被判定为真实内容，未发现明显的深度伪造痕迹。'
+                            : '经过深度学习模型分析，该文件被判定为可能包含深度伪造内容，建议进一步验证。'}
+                    </p>
+                </div>
+                
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h3 class="text-sm font-medium text-blue-900 mb-2">
+                        <i class="fas fa-info-circle mr-2"></i>技术说明
+                    </h3>
+                    <p class="text-sm text-blue-800">
+                        本检测结果基于 ${record.model} 模型进行分析，该模型在多个公开数据集上进行了训练，
+                        具有较高的准确率。置信度表示模型对判断结果的确定程度。
+                    </p>
+                </div>
+            </div>
+            
+            <div class="flex justify-end space-x-3 mt-6">
+                <button onclick="downloadReport(${index})" class="px-4 py-2 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
+                    <i class="fas fa-download mr-2"></i> 下载报告
+                </button>
+                <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 text-sm bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
+                    关闭
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // 点击背景关闭模态框
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
+}
+
+// 下载报告
+function downloadReport(index) {
+    const history = JSON.parse(localStorage.getItem('detectionHistory') || '[]');
+    const record = history[index];
+    
+    if (!record) {
+        showNotification('记录不存在', 'error');
+        return;
+    }
+    
+    // 生成报告内容
+    const reportContent = `
+Deepfake 检测报告
+
+检测信息:
+- 文件名: ${record.filename}
+- 检测时间: ${record.timestamp}
+- 使用模型: ${record.model}
+
+检测结果:
+- 判定结果: ${record.result === 'real' ? '真实' : '伪造'}
+- 置信度: ${record.confidence}%
+${record.processingTime ? `- 处理时间: ${record.processingTime} 秒` : ''}
+
+分析说明:
+${record.result === 'real' 
+    ? '经过深度学习模型分析，该文件被判定为真实内容，未发现明显的深度伪造痕迹。'
+    : '经过深度学习模型分析，该文件被判定为可能包含深度伪造内容，建议进一步验证。'}
+
+技术说明:
+本检测结果基于 ${record.model} 模型进行分析，该模型在多个公开数据集上进行了训练，
+具有较高的准确率。置信度表示模型对判断结果的确定程度。
+
+生成时间: ${new Date().toLocaleString('zh-CN')}
+生成平台: Deepfake 检测平台 v1.0.0
+`;
+    
+    // 创建下载链接
+    const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `deepfake_report_${record.filename.replace(/\.[^/.]+$/, '')}_${new Date().getTime()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    showNotification('报告下载成功', 'success');
+}
+
 // 键盘快捷键
 document.addEventListener('keydown', function(e) {
     // Ctrl/Cmd + 1-5 快速切换页面
@@ -772,5 +972,8 @@ document.addEventListener('keydown', function(e) {
     // Escape 关闭加载提示
     if (e.key === 'Escape') {
         showLoading(false);
+        // 关闭所有模态框
+        const modals = document.querySelectorAll('.fixed.inset-0');
+        modals.forEach(modal => modal.remove());
     }
 });

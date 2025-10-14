@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 echo 启动 Deepfake 检测平台前端...
 echo.
 echo 请确保：
