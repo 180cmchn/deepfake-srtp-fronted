@@ -16,6 +16,8 @@
 - **🔧 模型管理** - 查看和管理可用的检测模型
 - **📉 统计分析** - 可视化的检测数据和性能指标
 - **🗑️ 记录管理** - 支持删除历史检测记录
+- **✅ 训练结果展示** - 展示训练指标与模型文件路径，是否保留模型由人工决定
+- **🧾 人工模型决策** - 对已完成训练任务可执行“保留模型/删除模型”
 
 ### 用户体验
 - **📱 响应式设计** - 完美适配桌面和移动设备
@@ -106,6 +108,12 @@ const API_BASE_URL = 'http://localhost:8000/api/v1';
 2. 查看总体检测数据
 3. 分析检测趋势图表
 
+### 5. 模型训练
+1. 进入"模型训练"页面并填写数据集路径
+2. 提交训练任务并查看训练进度
+3. 训练完成后查看模型文件路径
+4. 点击“保留模型”或“删除模型”完成人工决策
+
 ## 🎨 界面预览
 
 ### 主检测界面
@@ -149,6 +157,25 @@ GET /api/v1/detection/history
 ```javascript
 GET /api/v1/detection/statistics
 返回: 检测统计数据
+```
+
+### 训练接口
+```javascript
+POST /api/v1/training/jobs
+Content-Type: application/json
+
+参数:
+- name: 任务名称
+- model_type: 模型类型
+- dataset_path: 数据集路径
+- parameters: 训练参数（epochs/batch_size/learning_rate 等）
+```
+
+训练任务响应中包含 `results.model_path`，用于人工判断是否保留模型文件。
+
+```javascript
+POST /api/v1/training/jobs/{id}/model/retain
+DELETE /api/v1/training/jobs/{id}/model
 ```
 
 ## 🐛 故障排除

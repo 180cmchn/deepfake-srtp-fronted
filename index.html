@@ -151,8 +151,8 @@
                             <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
                                 <div class="flex items-center justify-between">
                                     <div>
-                                        <p class="text-sm font-medium text-gray-600">今日检测</p>
-                                        <p class="text-2xl font-bold text-gray-900">24</p>
+                                        <p class="text-sm font-medium text-gray-600">总检测次数</p>
+                                        <p class="text-2xl font-bold text-gray-900" id="detectionTotal">-</p>
                                     </div>
                                     <div class="p-3 rounded-full bg-blue-100 text-blue-600">
                                         <i class="fas fa-file-upload h-6 w-6"></i>
@@ -162,8 +162,8 @@
                             <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
                                 <div class="flex items-center justify-between">
                                     <div>
-                                        <p class="text-sm font-medium text-gray-600">检测成功率</p>
-                                        <p class="text-2xl font-bold text-gray-900">98.5%</p>
+                                        <p class="text-sm font-medium text-gray-600">平均置信度</p>
+                                        <p class="text-2xl font-bold text-gray-900" id="detectionAvgConfidence">-</p>
                                     </div>
                                     <div class="p-3 rounded-full bg-green-100 text-green-600">
                                         <i class="fas fa-check-circle h-6 w-6"></i>
@@ -174,7 +174,7 @@
                                 <div class="flex items-center justify-between">
                                     <div>
                                         <p class="text-sm font-medium text-gray-600">平均处理时间</p>
-                                        <p class="text-2xl font-bold text-gray-900">2.3s</p>
+                                        <p class="text-2xl font-bold text-gray-900" id="detectionAvgTime">-</p>
                                     </div>
                                     <div class="p-3 rounded-full bg-yellow-100 text-yellow-600">
                                         <i class="fas fa-clock h-6 w-6"></i>
@@ -185,7 +185,7 @@
                                 <div class="flex items-center justify-between">
                                     <div>
                                         <p class="text-sm font-medium text-gray-600">活跃模型</p>
-                                        <p class="text-2xl font-bold text-gray-900">5</p>
+                                        <p class="text-2xl font-bold text-gray-900" id="detectionActiveModels">-</p>
                                     </div>
                                     <div class="p-3 rounded-full bg-purple-100 text-purple-600">
                                         <i class="fas fa-brain h-6 w-6"></i>
@@ -349,14 +349,8 @@
                                             </select>
                                         </div>
                                         <div>
-                                            <label for="trainingDataset" class="block text-sm font-medium text-gray-700 mb-1">数据集:</label>
-                                            <select id="trainingDataset" name="dataset" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" required>
-                                                <option value="">选择数据集</option>
-                                                <option value="celeb_df">Celeb-DF</option>
-                                                <option value="faceforensics">FaceForensics++</option>
-                                                <option value="dfdc">DFDC</option>
-                                                <option value="custom">自定义数据集</option>
-                                            </select>
+                                            <label for="trainingDatasetPath" class="block text-sm font-medium text-gray-700 mb-1">数据集路径:</label>
+                                            <input type="text" id="trainingDatasetPath" name="dataset_path" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="如: /path/to/dataset" required>
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-2 gap-4">
@@ -383,6 +377,9 @@
                                         <i class="fas fa-play mr-2"></i> 开始训练
                                     </button>
                                 </form>
+                                <div class="mt-4 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                                    训练完成后会生成模型文件路径，请根据训练结果人工决定是否保留模型文件。
+                                </div>
                             </div>
 
                             <!-- Training Jobs List -->
@@ -455,7 +452,7 @@
                             <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
                                 <div class="flex items-center justify-between">
                                     <div>
-                                        <p class="text-sm font-medium text-gray-600">平均准确率</p>
+                                        <p class="text-sm font-medium text-gray-600">平均置信度</p>
                                         <p class="text-2xl font-bold text-gray-900" id="accuracy">-</p>
                                     </div>
                                     <div class="p-3 rounded-full bg-yellow-100 text-yellow-600">
