@@ -4,8 +4,14 @@ let currentSection = 'detection';
 let trendChart = null;
 let detectionHistoryCache = [];
 let detectionModelCache = [];
+let detectionModelTypeCache = [];
+let trainingDatasetCache = [];
+let trainingJobsPollTimer = null;
+let selectedTrainingDatasetFiles = [];
+let selectedTrainingDatasetRelativePaths = [];
 
 const API_BASE_URL = 'http://localhost:8000/api/v1';
+const TRAINING_JOBS_POLL_INTERVAL = 10000;
 
 // 页面配置
 const pageConfig = {
@@ -41,6 +47,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadDetectionStats();
     loadHistory();
     loadModels();
+    loadTrainingDatasets();
     loadTrainingJobs();
     loadStatistics();
 });
@@ -96,6 +103,18 @@ function switchSection(sectionName) {
     pageSubtitle.textContent = pageConfig[sectionName].subtitle;
     
     currentSection = sectionName;
+    handleSectionChange(sectionName);
+}
+
+function handleSectionChange(sectionName) {
+    if (sectionName === 'training') {
+        loadTrainingDatasets();
+        loadTrainingJobs({ silent: true });
+        startTrainingJobsPolling();
+        return;
+    }
+
+    stopTrainingJobsPolling();
 }
 
 // 文件上传功能
@@ -199,7 +218,12 @@ async function performDetection() {
     }
     
     const modelSelect = document.getElementById('modelSelect');
-    const selectedModel = modelSelect.value;
+    const selectedModel = parseDetectionModelSelection(modelSelect.value);
+
+    if (selectedModel.usableFor.length && !canUseModelForFiles(selectedModel, uploadedFiles)) {
+        showNotification(`当前模型仅支持${selectedModel.usableFor.includes('video') && !selectedModel.usableFor.includes('image') ? '视频' : '所选文件类型'}检测`, 'warning');
+        return;
+    }
     
     showLoading(true);
     const resultsContainer = document.getElementById('resultsContainer');
@@ -232,9 +256,7 @@ async function runDetectionRequest(files, selectedModel) {
         if (isVideo) {
             const formData = new FormData();
             formData.append('file', file);
-            if (selectedModel) {
-                formData.append('model_type', selectedModel);
-            }
+            appendDetectionModelSelection(formData, selectedModel);
 
             const response = await axios.post(`${API_BASE_URL}/detection/detect/video`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
@@ -245,9 +267,7 @@ async function runDetectionRequest(files, selectedModel) {
 
         const formData = new FormData();
         formData.append('file', file);
-        if (selectedModel) {
-            formData.append('model_type', selectedModel);
-        }
+        appendDetectionModelSelection(formData, selectedModel);
 
         const response = await axios.post(`${API_BASE_URL}/detection/detect`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
@@ -260,9 +280,7 @@ async function runDetectionRequest(files, selectedModel) {
     files.forEach(file => {
         formData.append('files', file);
     });
-    if (selectedModel) {
-        formData.append('model_type', selectedModel);
-    }
+    appendDetectionModelSelection(formData, selectedModel);
 
     const response = await axios.post(`${API_BASE_URL}/detection/detect/batch`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -275,11 +293,12 @@ async function runDetectionRequest(files, selectedModel) {
 function normalizeDetectionResult(response, file, selectedModel) {
     const fileName = file?.name || response?.file_info?.name || 'Unknown';
     const result = response?.result;
+    const modelLabel = result?.model_info?.model_name || selectedModel.label || '-';
 
     if (!response?.success || !result) {
         return {
             filename: fileName,
-            model: selectedModel,
+            model: modelLabel,
             result: 'error',
             confidence: '-'
         };
@@ -287,7 +306,7 @@ function normalizeDetectionResult(response, file, selectedModel) {
 
     return {
         filename: fileName,
-        model: selectedModel,
+        model: modelLabel,
         result: result.prediction,
         confidence: (result.confidence * 100).toFixed(1),
         processingTime: result.processing_time?.toFixed(2) || response.processing_time?.toFixed(2)
@@ -297,11 +316,12 @@ function normalizeDetectionResult(response, file, selectedModel) {
 function normalizeVideoResult(response, file, selectedModel) {
     const fileName = file?.name || response?.video_info?.name || 'Unknown';
     const result = response?.aggregated_result;
+    const modelLabel = result?.model_info?.model_name || selectedModel.label || '-';
 
     if (!response?.success || !result) {
         return {
             filename: fileName,
-            model: selectedModel,
+            model: modelLabel,
             result: 'error',
             confidence: '-'
         };
@@ -309,7 +329,7 @@ function normalizeVideoResult(response, file, selectedModel) {
 
     return {
         filename: fileName,
-        model: selectedModel,
+        model: modelLabel,
         result: result.prediction,
         confidence: (result.confidence * 100).toFixed(1),
         processingTime: result.processing_time?.toFixed(2) || response.processing_time?.toFixed(2)
@@ -378,7 +398,8 @@ async function loadDetectionModels() {
     try {
         const response = await axios.get(`${API_BASE_URL}/detection/models`);
         const models = response.data.models || [];
-        const defaultModel = response.data.default || '';
+        const defaultModel = response.data.default || {};
+        detectionModelTypeCache = response.data.model_types || [];
         detectionModelCache = models;
 
         if (!models.length) {
@@ -387,17 +408,23 @@ async function loadDetectionModels() {
 
         if (modelSelect) {
             modelSelect.innerHTML = models.map(model => `
-                <option value="${model}">${formatModelLabel(model)}${model === defaultModel ? ' (默认)' : ''}</option>
+                <option value="${serializeDetectionModel(model)}">${model.label}${model.is_default ? ' (默认)' : ''}</option>
             `).join('');
-            if (defaultModel) {
-                modelSelect.value = defaultModel;
+            const defaultValue = defaultModel.model_id
+                ? `id:${defaultModel.model_id}`
+                : `type:${defaultModel.model_type || ''}`;
+            if (defaultValue !== 'type:') {
+                modelSelect.value = defaultValue;
             }
         }
 
         if (modelFilter) {
+            const filterTypes = detectionModelTypeCache.length
+                ? detectionModelTypeCache
+                : Array.from(new Set(models.map(model => model.model_type).filter(Boolean)));
             modelFilter.innerHTML = `
                 <option value="">所有模型</option>
-                ${models.map(model => `<option value="${model}">${formatModelLabel(model)}</option>`).join('')}
+                ${filterTypes.map(modelType => `<option value="${modelType}">${formatModelLabel(modelType)}</option>`).join('')}
             `;
         }
     } catch (error) {
@@ -620,6 +647,388 @@ function initializeTraining() {
     if (form) {
         form.addEventListener('submit', handleTrainingSubmit);
     }
+
+    const statusFilter = document.getElementById('trainingStatusFilter');
+    if (statusFilter) {
+        statusFilter.addEventListener('change', () => loadTrainingJobs({ silent: true }));
+    }
+
+    const datasetSelect = document.getElementById('trainingDatasetPath');
+    if (datasetSelect) {
+        datasetSelect.addEventListener('change', updateTrainingDatasetHint);
+    }
+
+    const refreshDatasetsBtn = document.getElementById('refreshDatasetsBtn');
+    if (refreshDatasetsBtn) {
+        refreshDatasetsBtn.addEventListener('click', () => loadTrainingDatasets(undefined, { notify: true }));
+    }
+
+    const registerDatasetBtn = document.getElementById('registerDatasetBtn');
+    if (registerDatasetBtn) {
+        registerDatasetBtn.addEventListener('click', () => toggleDatasetRegisterPanel(true));
+    }
+
+    const uploadDatasetFolderOpenBtn = document.getElementById('uploadDatasetFolderOpenBtn');
+    if (uploadDatasetFolderOpenBtn) {
+        uploadDatasetFolderOpenBtn.addEventListener('click', () => {
+            toggleDatasetRegisterPanel(true);
+            triggerDatasetFolderPicker();
+        });
+    }
+
+    const closeDatasetRegisterPanelBtn = document.getElementById('closeDatasetRegisterPanelBtn');
+    if (closeDatasetRegisterPanelBtn) {
+        closeDatasetRegisterPanelBtn.addEventListener('click', () => toggleDatasetRegisterPanel(false));
+    }
+
+    const saveDatasetPathBtn = document.getElementById('saveDatasetPathBtn');
+    if (saveDatasetPathBtn) {
+        saveDatasetPathBtn.addEventListener('click', saveRegisteredDatasetPath);
+    }
+
+    const chooseDatasetFolderBtn = document.getElementById('chooseDatasetFolderBtn');
+    if (chooseDatasetFolderBtn) {
+        chooseDatasetFolderBtn.addEventListener('click', triggerDatasetFolderPicker);
+    }
+
+    const folderPicker = document.getElementById('trainingDatasetFolderPicker');
+    if (folderPicker) {
+        folderPicker.addEventListener('change', handleDatasetFolderSelection);
+    }
+
+    const uploadDatasetFolderBtn = document.getElementById('uploadDatasetFolderBtn');
+    if (uploadDatasetFolderBtn) {
+        uploadDatasetFolderBtn.addEventListener('click', uploadSelectedDatasetFolder);
+    }
+
+    const datasetRegisterPath = document.getElementById('datasetRegisterPath');
+    if (datasetRegisterPath) {
+        datasetRegisterPath.addEventListener('input', syncDatasetNameFromPathInput);
+    }
+}
+
+async function loadTrainingDatasets(selectedPath, options = {}) {
+    const datasetSelect = document.getElementById('trainingDatasetPath');
+    if (!datasetSelect) return;
+
+    const notify = Boolean(options.notify);
+    const previousValue = selectedPath || datasetSelect.value;
+
+    try {
+        const response = await axios.get(`${API_BASE_URL}/datasets/`, {
+            params: { limit: 100 }
+        });
+
+        trainingDatasetCache = response.data.datasets || [];
+
+        if (!trainingDatasetCache.length) {
+            datasetSelect.innerHTML = '<option value="">暂无已登记数据集</option>';
+            datasetSelect.disabled = true;
+            updateTrainingDatasetHint();
+            if (notify) {
+                showNotification('当前没有已登记的数据集', 'info');
+            }
+            return;
+        }
+
+        datasetSelect.disabled = false;
+        datasetSelect.innerHTML = `
+            <option value="">选择数据集</option>
+            ${trainingDatasetCache.map(dataset => `
+                <option value="${escapeHtml(dataset.path)}">${escapeHtml(formatTrainingDatasetOption(dataset))}</option>
+            `).join('')}
+        `;
+
+        const selectedDataset = trainingDatasetCache.find(dataset => dataset.path === previousValue);
+        datasetSelect.value = selectedDataset ? selectedDataset.path : trainingDatasetCache[0].path;
+        updateTrainingDatasetHint();
+
+        if (notify) {
+            showNotification(`已加载 ${trainingDatasetCache.length} 个数据集`, 'success');
+        }
+    } catch (error) {
+        trainingDatasetCache = [];
+        datasetSelect.innerHTML = '<option value="">加载数据集失败</option>';
+        datasetSelect.disabled = true;
+        updateTrainingDatasetHint('数据集加载失败，请检查后端数据集接口或点击刷新列表重试。');
+        if (notify) {
+            showNotification('加载数据集失败：' + getApiErrorMessage(error), 'error');
+        }
+    }
+}
+
+function updateTrainingDatasetHint(customMessage) {
+    const hint = document.getElementById('trainingDatasetHint');
+    const datasetSelect = document.getElementById('trainingDatasetPath');
+    if (!hint || !datasetSelect) return;
+
+    if (customMessage) {
+        hint.textContent = customMessage;
+        return;
+    }
+
+    const selectedDataset = trainingDatasetCache.find(dataset => dataset.path === datasetSelect.value);
+    if (!selectedDataset) {
+        hint.textContent = datasetSelect.disabled
+            ? '请先点击“新增数据集”或“选择文件夹”添加数据集，再刷新列表。'
+            : '请选择已登记的数据集；目录建议包含 fake 和 real 子目录。';
+        return;
+    }
+
+    const sampleCount = selectedDataset.stats?.total_samples ?? '未统计';
+    const statusText = mapDatasetStatus(selectedDataset.processing_status, selectedDataset.is_processed);
+    hint.textContent = `路径: ${selectedDataset.path} | 状态: ${statusText} | 样本数: ${sampleCount}`;
+}
+
+function toggleDatasetRegisterPanel(forceOpen) {
+    const panel = document.getElementById('datasetRegisterPanel');
+    if (!panel) return;
+
+    const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !shouldOpen);
+
+    if (!shouldOpen) {
+        clearDatasetRegisterPathForm();
+        resetDatasetFolderSelection();
+    }
+}
+
+function startTrainingJobsPolling() {
+    if (trainingJobsPollTimer) {
+        return;
+    }
+
+    updateTrainingPollingStatus(true);
+    trainingJobsPollTimer = window.setInterval(() => {
+        if (currentSection !== 'training') {
+            return;
+        }
+        loadTrainingJobs({ silent: true });
+    }, TRAINING_JOBS_POLL_INTERVAL);
+}
+
+function stopTrainingJobsPolling() {
+    if (trainingJobsPollTimer) {
+        window.clearInterval(trainingJobsPollTimer);
+        trainingJobsPollTimer = null;
+    }
+    updateTrainingPollingStatus(false);
+}
+
+function updateTrainingPollingStatus(active, jobs = []) {
+    const statusEl = document.getElementById('trainingPollingStatus');
+    if (!statusEl) return;
+
+    if (!active) {
+        statusEl.textContent = '自动刷新未开启';
+        return;
+    }
+
+    const activeJobs = jobs.filter(job => ['pending', 'running'].includes(job.status)).length;
+    statusEl.textContent = activeJobs > 0
+        ? `自动刷新中（每10秒，活动任务 ${activeJobs}）`
+        : '自动刷新中（每10秒）';
+}
+
+async function saveRegisteredDatasetPath() {
+    const nameInput = document.getElementById('datasetRegisterName');
+    const pathInput = document.getElementById('datasetRegisterPath');
+    const descriptionInput = document.getElementById('datasetRegisterDescription');
+
+    const datasetName = nameInput?.value.trim() || '';
+    const datasetPath = pathInput?.value.trim() || '';
+    const description = descriptionInput?.value.trim() || '';
+
+    if (!datasetName) {
+        showNotification('请输入数据集名称', 'warning');
+        return;
+    }
+    if (!datasetPath) {
+        showNotification('请输入本地数据集路径', 'warning');
+        return;
+    }
+
+    showLoading(true);
+    try {
+        const response = await axios.post(`${API_BASE_URL}/datasets/`, {
+            name: datasetName,
+            description: description || null,
+            path: datasetPath,
+            image_size: 224,
+            frame_extraction_interval: 4,
+            max_frames_per_video: 20
+        });
+
+        await loadTrainingDatasets(response.data.path, { notify: false });
+        clearDatasetRegisterPathForm();
+        toggleDatasetRegisterPanel(false);
+        showNotification(`数据集已登记：${response.data.name}`, 'success');
+    } catch (error) {
+        showNotification('登记数据集失败：' + getApiErrorMessage(error), 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+function syncDatasetNameFromPathInput() {
+    const nameInput = document.getElementById('datasetRegisterName');
+    const pathInput = document.getElementById('datasetRegisterPath');
+    if (!nameInput || !pathInput || nameInput.value.trim()) {
+        return;
+    }
+
+    const guessedName = guessDatasetNameFromPath(pathInput.value.trim());
+    if (guessedName && guessedName !== 'local-dataset') {
+        nameInput.value = guessedName;
+    }
+}
+
+function clearDatasetRegisterPathForm() {
+    const nameInput = document.getElementById('datasetRegisterName');
+    const pathInput = document.getElementById('datasetRegisterPath');
+    const descriptionInput = document.getElementById('datasetRegisterDescription');
+    if (nameInput) nameInput.value = '';
+    if (pathInput) pathInput.value = '';
+    if (descriptionInput) descriptionInput.value = '';
+}
+
+function triggerDatasetFolderPicker() {
+    const folderPicker = document.getElementById('trainingDatasetFolderPicker');
+    if (folderPicker) {
+        folderPicker.click();
+    }
+}
+
+function handleDatasetFolderSelection(event) {
+    const files = Array.from(event.target.files || []);
+    const summaryEl = document.getElementById('datasetFolderSelectionSummary');
+    const uploadBtn = document.getElementById('uploadDatasetFolderBtn');
+    const uploadNameInput = document.getElementById('datasetUploadName');
+
+    if (!files.length) {
+        resetDatasetFolderSelection();
+        return;
+    }
+
+    selectedTrainingDatasetFiles = files;
+    selectedTrainingDatasetRelativePaths = files.map(file => file.webkitRelativePath || file.name);
+    const summary = summarizeDatasetFolderSelection(selectedTrainingDatasetRelativePaths);
+
+    if (uploadNameInput && !uploadNameInput.value.trim()) {
+        uploadNameInput.value = summary.rootName || 'uploaded-dataset';
+    }
+
+    if (summaryEl) {
+        summaryEl.innerHTML = `
+            <p>已选择文件夹: ${escapeHtml(summary.rootName || '未知目录')}</p>
+            <p>文件数: ${summary.totalFiles} | fake: ${summary.fakeCount} | real: ${summary.realCount}</p>
+            <p>${summary.hasExpectedStructure ? '已检测到 fake/real 目录结构' : '未完整检测到 fake/real 目录结构，请确认目录内容'}</p>
+        `;
+    }
+
+    if (uploadBtn) {
+        uploadBtn.disabled = !summary.hasExpectedStructure;
+    }
+}
+
+function summarizeDatasetFolderSelection(relativePaths) {
+    const normalizedPaths = relativePaths.map(path => String(path || '').replace(/\\/g, '/'));
+    const firstPath = normalizedPaths[0] || '';
+    const rootName = firstPath.split('/')[0] || '';
+    const fakeCount = normalizedPaths.filter(path => /(^|\/)fake(\/|$)/i.test(path)).length;
+    const realCount = normalizedPaths.filter(path => /(^|\/)real(\/|$)/i.test(path)).length;
+
+    return {
+        rootName,
+        totalFiles: normalizedPaths.length,
+        fakeCount,
+        realCount,
+        hasExpectedStructure: fakeCount > 0 && realCount > 0
+    };
+}
+
+function resetDatasetFolderSelection() {
+    selectedTrainingDatasetFiles = [];
+    selectedTrainingDatasetRelativePaths = [];
+
+    const folderPicker = document.getElementById('trainingDatasetFolderPicker');
+    const summaryEl = document.getElementById('datasetFolderSelectionSummary');
+    const uploadNameInput = document.getElementById('datasetUploadName');
+    const uploadDescriptionInput = document.getElementById('datasetUploadDescription');
+    const uploadBtn = document.getElementById('uploadDatasetFolderBtn');
+
+    if (folderPicker) folderPicker.value = '';
+    if (summaryEl) summaryEl.textContent = '尚未选择文件夹';
+    if (uploadNameInput) uploadNameInput.value = '';
+    if (uploadDescriptionInput) uploadDescriptionInput.value = '';
+    if (uploadBtn) uploadBtn.disabled = true;
+}
+
+async function uploadSelectedDatasetFolder() {
+    const datasetNameInput = document.getElementById('datasetUploadName');
+    const datasetDescriptionInput = document.getElementById('datasetUploadDescription');
+    const datasetName = datasetNameInput?.value.trim() || '';
+    const description = datasetDescriptionInput?.value.trim() || '';
+
+    if (!selectedTrainingDatasetFiles.length || !selectedTrainingDatasetRelativePaths.length) {
+        showNotification('请先选择本地数据集文件夹', 'warning');
+        return;
+    }
+    if (!datasetName) {
+        showNotification('请输入上传后数据集名称', 'warning');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('name', datasetName);
+    if (description) {
+        formData.append('description', description);
+    }
+
+    selectedTrainingDatasetFiles.forEach((file, index) => {
+        formData.append('files', file, file.name);
+        formData.append('relative_paths', selectedTrainingDatasetRelativePaths[index]);
+    });
+
+    showLoading(true);
+    try {
+        const response = await axios.post(`${API_BASE_URL}/datasets/upload-folder`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        await loadTrainingDatasets(response.data.path, { notify: false });
+        resetDatasetFolderSelection();
+        toggleDatasetRegisterPanel(false);
+        showNotification(`文件夹上传成功：${response.data.name}`, 'success');
+    } catch (error) {
+        showNotification('上传数据集文件夹失败：' + getApiErrorMessage(error), 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+function guessDatasetNameFromPath(datasetPath) {
+    const normalizedPath = datasetPath.replace(/[\\/]+$/, '');
+    const segments = normalizedPath.split(/[\\/]/).filter(Boolean);
+    return segments[segments.length - 1] || 'local-dataset';
+}
+
+function formatTrainingDatasetOption(dataset) {
+    const statusText = mapDatasetStatus(dataset.processing_status, dataset.is_processed);
+    const sampleCount = dataset.stats?.total_samples ?? '未统计';
+    return `${dataset.name} | ${statusText} | 样本 ${sampleCount}`;
+}
+
+function mapDatasetStatus(processingStatus, isProcessed) {
+    if (isProcessed) return '已处理';
+
+    const mapping = {
+        pending: '待处理',
+        processing: '处理中',
+        completed: '已完成',
+        failed: '处理失败'
+    };
+    return mapping[processingStatus] || '未处理';
 }
 
 async function handleTrainingSubmit(e) {
@@ -636,6 +1045,12 @@ async function handleTrainingSubmit(e) {
         const epochs = parseInt(trainingData.epochs, 10);
         const batchSize = parseInt(trainingData.batch_size, 10);
         const learningRate = parseFloat(trainingData.learning_rate);
+        const trainingDevice = trainingData.training_device || 'mps';
+
+        if (!datasetPath) {
+            showNotification('请先选择训练数据集', 'warning');
+            return;
+        }
 
         const payload = {
             name: `${modelType.toUpperCase()} 训练任务 ${new Date().toLocaleString('zh-CN')}`,
@@ -645,7 +1060,8 @@ async function handleTrainingSubmit(e) {
             parameters: {
                 epochs: epochs,
                 learning_rate: learningRate,
-                batch_size: batchSize
+                batch_size: batchSize,
+                training_device: trainingDevice
             }
         };
 
@@ -655,7 +1071,16 @@ async function handleTrainingSubmit(e) {
 
         showNotification('训练任务创建成功！', 'success');
         e.target.reset();
-        loadTrainingJobs();
+        const datasetSelect = document.getElementById('trainingDatasetPath');
+        if (datasetSelect && trainingDatasetCache.length) {
+            datasetSelect.value = datasetPath;
+        }
+        const trainingDeviceSelect = document.getElementById('trainingDevice');
+        if (trainingDeviceSelect) {
+            trainingDeviceSelect.value = trainingDevice;
+        }
+        updateTrainingDatasetHint();
+        loadTrainingJobs({ silent: true });
     } catch (error) {
         showNotification('创建失败：' + getApiErrorMessage(error), 'error');
     } finally {
@@ -663,9 +1088,10 @@ async function handleTrainingSubmit(e) {
     }
 }
 
-async function loadTrainingJobs() {
+async function loadTrainingJobs(options = {}) {
     const container = document.getElementById('trainingList');
     if (!container) return;
+    const silent = Boolean(options.silent);
     
     try {
         const statusFilter = document.getElementById('trainingStatusFilter');
@@ -680,6 +1106,7 @@ async function loadTrainingJobs() {
         });
 
         const jobs = response.data.jobs || [];
+        updateTrainingPollingStatus(currentSection === 'training', jobs);
 
         if (jobs.length === 0) {
             container.innerHTML = `
@@ -704,6 +1131,7 @@ async function loadTrainingJobs() {
             const modelLabel = formatModelLabel(job.model_type);
             const modelPath = job.results?.model_path;
             const modelFileStatus = modelPath ? '已生成' : '未生成';
+            const trainingDevice = (job.parameters?.training_device || 'auto').toUpperCase();
 
             return `
             <div class="border border-gray-200 rounded-lg p-4 hover:border-primary-300 transition-colors">
@@ -711,6 +1139,7 @@ async function loadTrainingJobs() {
                     <div>
                         <h4 class="font-medium text-gray-900">${job.name}</h4>
                         <p class="text-sm text-gray-500">${modelLabel} • ${job.dataset_path}</p>
+                        <p class="text-xs text-gray-400 mt-1">设备: ${trainingDevice}</p>
                         <p class="text-xs text-gray-400 mt-1">开始时间: ${startedAt}</p>
                     </div>
                     <span class="px-2 py-1 text-xs font-medium rounded-full ${
@@ -794,7 +1223,9 @@ async function loadTrainingJobs() {
                 <p>加载失败</p>
             </div>
         `;
-        showNotification('加载训练任务失败：' + getApiErrorMessage(error), 'error');
+        if (!silent) {
+            showNotification('加载训练任务失败：' + getApiErrorMessage(error), 'error');
+        }
     }
 }
 
@@ -824,7 +1255,8 @@ async function viewTrainingJob(jobId) {
         const job = response.data;
         const progress = typeof job.progress === 'number' ? job.progress.toFixed(1) + '%' : '-';
         const modelPath = job.results?.model_path || '-';
-        const detail = `训练任务: ${job.name}\n模型: ${formatModelLabel(job.model_type)}\n数据集: ${job.dataset_path}\n状态: ${job.status}\n进度: ${progress}\n模型文件: ${modelPath}\n提示: 模型是否保留由人工决定`;
+        const trainingDevice = (job.parameters?.training_device || 'auto').toUpperCase();
+        const detail = `训练任务: ${job.name}\n模型: ${formatModelLabel(job.model_type)}\n数据集: ${job.dataset_path}\n训练设备: ${trainingDevice}\n状态: ${job.status}\n进度: ${progress}\n模型文件: ${modelPath}\n提示: 模型是否保留由人工决定`;
         showNotification(detail, 'info');
     } catch (error) {
         showNotification('获取详情失败：' + getApiErrorMessage(error), 'error');
@@ -833,8 +1265,11 @@ async function viewTrainingJob(jobId) {
 
 async function retainTrainingModel(jobId) {
     try {
-        await axios.post(`${API_BASE_URL}/training/jobs/${jobId}/model/retain`);
-        showNotification('已确认保留模型文件', 'success');
+        const response = await axios.post(`${API_BASE_URL}/training/jobs/${jobId}/model/retain`);
+        const modelName = response.data.model_name || '模型';
+        showNotification(`已保留模型：${modelName}`, 'success');
+        loadDetectionModels();
+        loadModels();
         loadTrainingJobs();
     } catch (error) {
         showNotification('保留模型失败：' + getApiErrorMessage(error), 'error');
@@ -850,10 +1285,70 @@ async function discardTrainingModel(jobId) {
     try {
         await axios.delete(`${API_BASE_URL}/training/jobs/${jobId}/model`);
         showNotification('模型文件已删除', 'success');
+        loadDetectionModels();
+        loadModels();
         loadTrainingJobs();
     } catch (error) {
         showNotification('删除模型失败：' + getApiErrorMessage(error), 'error');
     }
+}
+
+function serializeDetectionModel(model) {
+    if (model?.source === 'registry' && model?.id) {
+        return `id:${model.id}`;
+    }
+    return `type:${model?.model_type || model?.name || ''}`;
+}
+
+function parseDetectionModelSelection(value) {
+    const selected = detectionModelCache.find(model => serializeDetectionModel(model) === value);
+    if (selected) {
+        return {
+            modelId: selected.id || null,
+            modelType: selected.model_type || null,
+            label: selected.name || selected.label || '-',
+            usableFor: selected.usable_for || ['image', 'video']
+        };
+    }
+
+    if (value.startsWith('id:')) {
+        return { modelId: Number(value.slice(3)), modelType: null, label: value, usableFor: ['image', 'video'] };
+    }
+    if (value.startsWith('type:')) {
+        const modelType = value.slice(5);
+        return { modelId: null, modelType, label: formatModelLabel(modelType), usableFor: modelType === 'lrcn' ? ['video'] : ['image', 'video'] };
+    }
+    return { modelId: null, modelType: null, label: '-', usableFor: ['image', 'video'] };
+}
+
+function appendDetectionModelSelection(formData, selectedModel) {
+    if (!selectedModel) {
+        return;
+    }
+    if (selectedModel.modelId) {
+        formData.append('model_id', selectedModel.modelId);
+    } else if (selectedModel.modelType) {
+        formData.append('model_type', selectedModel.modelType);
+    }
+}
+
+function canUseModelForFiles(selectedModel, files) {
+    if (!selectedModel?.usableFor?.length) {
+        return true;
+    }
+    return files.every(file => {
+        const fileKind = isVideoFile(file.name) || file.type.startsWith('video/') ? 'video' : 'image';
+        return selectedModel.usableFor.includes(fileKind);
+    });
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function formatAccuracy(value) {
