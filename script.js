@@ -9,9 +9,10 @@ let trainingDatasetCache = [];
 let trainingJobsPollTimer = null;
 let selectedTrainingDatasetFiles = [];
 let selectedTrainingDatasetRelativePaths = [];
+let currentDatasetRegisterMode = 'path';
 
 const API_BASE_URL = 'http://localhost:8000/api/v1';
-const TRAINING_JOBS_POLL_INTERVAL = 10000;
+const TRAINING_JOBS_POLL_INTERVAL = 1000;
 
 // 页面配置
 const pageConfig = {
@@ -665,13 +666,13 @@ function initializeTraining() {
 
     const registerDatasetBtn = document.getElementById('registerDatasetBtn');
     if (registerDatasetBtn) {
-        registerDatasetBtn.addEventListener('click', () => toggleDatasetRegisterPanel(true));
+        registerDatasetBtn.addEventListener('click', () => toggleDatasetRegisterPanel(true, 'path'));
     }
 
     const uploadDatasetFolderOpenBtn = document.getElementById('uploadDatasetFolderOpenBtn');
     if (uploadDatasetFolderOpenBtn) {
         uploadDatasetFolderOpenBtn.addEventListener('click', () => {
-            toggleDatasetRegisterPanel(true);
+            toggleDatasetRegisterPanel(true, 'folder');
             triggerDatasetFolderPicker();
         });
     }
@@ -679,6 +680,16 @@ function initializeTraining() {
     const closeDatasetRegisterPanelBtn = document.getElementById('closeDatasetRegisterPanelBtn');
     if (closeDatasetRegisterPanelBtn) {
         closeDatasetRegisterPanelBtn.addEventListener('click', () => toggleDatasetRegisterPanel(false));
+    }
+
+    const datasetModePathTab = document.getElementById('datasetModePathTab');
+    if (datasetModePathTab) {
+        datasetModePathTab.addEventListener('click', () => setDatasetRegisterMode('path'));
+    }
+
+    const datasetModeFolderTab = document.getElementById('datasetModeFolderTab');
+    if (datasetModeFolderTab) {
+        datasetModeFolderTab.addEventListener('click', () => setDatasetRegisterMode('folder'));
     }
 
     const saveDatasetPathBtn = document.getElementById('saveDatasetPathBtn');
@@ -720,6 +731,7 @@ async function loadTrainingDatasets(selectedPath, options = {}) {
         });
 
         trainingDatasetCache = response.data.datasets || [];
+        updateDatasetCatalogBadge();
 
         if (!trainingDatasetCache.length) {
             datasetSelect.innerHTML = '<option value="">暂无已登记数据集</option>';
@@ -748,6 +760,7 @@ async function loadTrainingDatasets(selectedPath, options = {}) {
         }
     } catch (error) {
         trainingDatasetCache = [];
+        updateDatasetCatalogBadge();
         datasetSelect.innerHTML = '<option value="">加载数据集失败</option>';
         datasetSelect.disabled = true;
         updateTrainingDatasetHint('数据集加载失败，请检查后端数据集接口或点击刷新列表重试。');
@@ -760,15 +773,43 @@ async function loadTrainingDatasets(selectedPath, options = {}) {
 function updateTrainingDatasetHint(customMessage) {
     const hint = document.getElementById('trainingDatasetHint');
     const datasetSelect = document.getElementById('trainingDatasetPath');
+    const nameEl = document.getElementById('selectedDatasetName');
+    const statusEl = document.getElementById('selectedDatasetStatus');
+    const samplesEl = document.getElementById('selectedDatasetSamples');
     if (!hint || !datasetSelect) return;
 
     if (customMessage) {
         hint.textContent = customMessage;
+        if (nameEl) {
+            nameEl.textContent = '尚未选择';
+            nameEl.title = '尚未选择';
+        }
+        if (statusEl) {
+            statusEl.textContent = '待处理';
+            statusEl.title = '待处理';
+        }
+        if (samplesEl) {
+            samplesEl.textContent = '-';
+            samplesEl.title = '-';
+        }
         return;
     }
 
     const selectedDataset = trainingDatasetCache.find(dataset => dataset.path === datasetSelect.value);
     if (!selectedDataset) {
+        if (nameEl) {
+            nameEl.textContent = '尚未选择';
+            nameEl.title = '尚未选择';
+        }
+        if (statusEl) {
+            const statusText = datasetSelect.disabled ? '不可用' : '请选择';
+            statusEl.textContent = statusText;
+            statusEl.title = statusText;
+        }
+        if (samplesEl) {
+            samplesEl.textContent = '-';
+            samplesEl.title = '-';
+        }
         hint.textContent = datasetSelect.disabled
             ? '请先点击“新增数据集”或“选择文件夹”添加数据集，再刷新列表。'
             : '请选择已登记的数据集；目录建议包含 fake 和 real 子目录。';
@@ -777,20 +818,64 @@ function updateTrainingDatasetHint(customMessage) {
 
     const sampleCount = selectedDataset.stats?.total_samples ?? '未统计';
     const statusText = mapDatasetStatus(selectedDataset.processing_status, selectedDataset.is_processed);
+    if (nameEl) {
+        const datasetName = selectedDataset.name || '未命名数据集';
+        nameEl.textContent = datasetName;
+        nameEl.title = datasetName;
+    }
+    if (statusEl) {
+        statusEl.textContent = statusText;
+        statusEl.title = statusText;
+    }
+    if (samplesEl) {
+        const sampleText = typeof sampleCount === 'number' ? `${sampleCount} 条样本` : String(sampleCount);
+        samplesEl.textContent = sampleText;
+        samplesEl.title = sampleText;
+    }
     hint.textContent = `路径: ${selectedDataset.path} | 状态: ${statusText} | 样本数: ${sampleCount}`;
 }
 
-function toggleDatasetRegisterPanel(forceOpen) {
+function updateDatasetCatalogBadge() {
+    const badge = document.getElementById('datasetCatalogBadge');
+    if (!badge) return;
+
+    if (!trainingDatasetCache.length) {
+        badge.innerHTML = '<i class="fas fa-layer-group text-[11px]"></i><span>暂无数据集</span>';
+        return;
+    }
+
+    const processedCount = trainingDatasetCache.filter(dataset => dataset.is_processed).length;
+    badge.innerHTML = `<i class="fas fa-layer-group text-[11px]"></i><span>${trainingDatasetCache.length} 个数据集 · 已处理 ${processedCount}</span>`;
+}
+
+function toggleDatasetRegisterPanel(forceOpen, mode = currentDatasetRegisterMode) {
     const panel = document.getElementById('datasetRegisterPanel');
     if (!panel) return;
 
     const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : panel.classList.contains('hidden');
     panel.classList.toggle('hidden', !shouldOpen);
 
+    if (shouldOpen) {
+        setDatasetRegisterMode(mode);
+    }
+
     if (!shouldOpen) {
         clearDatasetRegisterPathForm();
         resetDatasetFolderSelection();
     }
+}
+
+function setDatasetRegisterMode(mode) {
+    currentDatasetRegisterMode = mode;
+    const pathTab = document.getElementById('datasetModePathTab');
+    const folderTab = document.getElementById('datasetModeFolderTab');
+    const pathSection = document.getElementById('datasetRegisterPathSection');
+    const folderSection = document.getElementById('datasetRegisterFolderSection');
+
+    if (pathTab) pathTab.classList.toggle('is-active', mode === 'path');
+    if (folderTab) folderTab.classList.toggle('is-active', mode === 'folder');
+    if (pathSection) pathSection.classList.toggle('hidden', mode !== 'path');
+    if (folderSection) folderSection.classList.toggle('hidden', mode !== 'folder');
 }
 
 function startTrainingJobsPolling() {
@@ -824,10 +909,13 @@ function updateTrainingPollingStatus(active, jobs = []) {
         return;
     }
 
+    const intervalSeconds = TRAINING_JOBS_POLL_INTERVAL >= 1000
+        ? `${TRAINING_JOBS_POLL_INTERVAL / 1000}秒`
+        : `${TRAINING_JOBS_POLL_INTERVAL}ms`;
     const activeJobs = jobs.filter(job => ['pending', 'running'].includes(job.status)).length;
     statusEl.textContent = activeJobs > 0
-        ? `自动刷新中（每10秒，活动任务 ${activeJobs}）`
-        : '自动刷新中（每10秒）';
+        ? `自动刷新中（每${intervalSeconds}，活动任务 ${activeJobs}）`
+        : `自动刷新中（每${intervalSeconds}）`;
 }
 
 async function saveRegisteredDatasetPath() {
@@ -919,6 +1007,7 @@ function handleDatasetFolderSelection(event) {
     }
 
     if (summaryEl) {
+        summaryEl.className = `dataset-folder-summary p-4 text-sm ${summary.hasExpectedStructure ? 'dataset-folder-summary--ready' : 'dataset-folder-summary--warning'}`;
         summaryEl.innerHTML = `
             <p>已选择文件夹: ${escapeHtml(summary.rootName || '未知目录')}</p>
             <p>文件数: ${summary.totalFiles} | fake: ${summary.fakeCount} | real: ${summary.realCount}</p>
@@ -958,7 +1047,10 @@ function resetDatasetFolderSelection() {
     const uploadBtn = document.getElementById('uploadDatasetFolderBtn');
 
     if (folderPicker) folderPicker.value = '';
-    if (summaryEl) summaryEl.textContent = '尚未选择文件夹';
+    if (summaryEl) {
+        summaryEl.className = 'dataset-folder-summary p-4 text-sm text-slate-500';
+        summaryEl.textContent = '尚未选择文件夹';
+    }
     if (uploadNameInput) uploadNameInput.value = '';
     if (uploadDescriptionInput) uploadDescriptionInput.value = '';
     if (uploadBtn) uploadBtn.disabled = true;
@@ -1121,10 +1213,10 @@ async function loadTrainingJobs(options = {}) {
         const jobCards = jobs.map(job => {
             const progress = typeof job.progress === 'number' ? job.progress : 0;
             const epochs = job.parameters?.epochs ?? '-';
-            const totalEpochs = typeof epochs === 'number' ? epochs : null;
-            const currentEpoch = totalEpochs
-                ? Math.max(1, Math.round((progress / 100) * totalEpochs))
-                : '-';
+            const totalEpochs = job.total_epochs ?? (typeof epochs === 'number' ? epochs : null);
+            const currentEpoch = job.current_epoch ?? (totalEpochs && progress > 0
+                ? Math.max(1, Math.round((Math.min(progress, 99) / 100) * totalEpochs))
+                : '-');
             const accuracy = formatAccuracy(job.results?.accuracy);
             const loss = formatLoss(job.results?.loss);
             const startedAt = formatDateTime(job.started_at || job.created_at);
@@ -1132,6 +1224,17 @@ async function loadTrainingJobs(options = {}) {
             const modelPath = job.results?.model_path;
             const modelFileStatus = modelPath ? '已生成' : '未生成';
             const trainingDevice = (job.parameters?.training_device || 'auto').toUpperCase();
+            const phaseMessage = job.progress_message || (job.status === 'completed'
+                ? '训练完成，可决定是否保留模型文件'
+                : job.status === 'failed'
+                ? '训练失败'
+                : job.status === 'cancelled'
+                ? '训练已取消'
+                : job.status === 'running'
+                ? '训练进行中'
+                : '等待开始训练');
+            const shouldShowProgress = ['running', 'completed'].includes(job.status);
+            const errorMessage = job.error_message || '';
 
             return `
             <div class="border border-gray-200 rounded-lg p-4 hover:border-primary-300 transition-colors">
@@ -1155,7 +1258,11 @@ async function loadTrainingJobs(options = {}) {
                     </span>
                 </div>
                 
-                ${job.status === 'running' ? `
+                <div class="mb-3 rounded-lg border ${job.status === 'failed' ? 'border-red-200 bg-red-50 text-red-700' : job.status === 'cancelled' ? 'border-amber-200 bg-amber-50 text-amber-700' : job.status === 'completed' ? 'border-green-200 bg-green-50 text-green-700' : 'border-blue-200 bg-blue-50 text-blue-700'} px-3 py-2 text-sm">
+                    ${escapeHtml(phaseMessage)}
+                </div>
+
+                ${shouldShowProgress ? `
                     <div class="mb-3">
                         <div class="flex justify-between text-sm mb-1">
                             <span class="text-gray-600">进度</span>
@@ -1164,7 +1271,13 @@ async function loadTrainingJobs(options = {}) {
                         <div class="w-full bg-gray-200 rounded-full h-2">
                             <div class="bg-primary-600 h-2 rounded-full transition-all duration-300" style="width: ${progress}%"></div>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1">Epoch ${job.progress === 100 ? epochs : currentEpoch}/${epochs}</p>
+                        <p class="text-xs text-gray-500 mt-1">Epoch ${currentEpoch}/${totalEpochs ?? epochs}</p>
+                    </div>
+                ` : ''}
+
+                ${errorMessage ? `
+                    <div class="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 break-all">
+                        ${escapeHtml(errorMessage)}
                     </div>
                 ` : ''}
                 
@@ -1256,7 +1369,9 @@ async function viewTrainingJob(jobId) {
         const progress = typeof job.progress === 'number' ? job.progress.toFixed(1) + '%' : '-';
         const modelPath = job.results?.model_path || '-';
         const trainingDevice = (job.parameters?.training_device || 'auto').toUpperCase();
-        const detail = `训练任务: ${job.name}\n模型: ${formatModelLabel(job.model_type)}\n数据集: ${job.dataset_path}\n训练设备: ${trainingDevice}\n状态: ${job.status}\n进度: ${progress}\n模型文件: ${modelPath}\n提示: 模型是否保留由人工决定`;
+        const phaseMessage = job.progress_message || '-';
+        const errorMessage = job.error_message || '-';
+        const detail = `训练任务: ${job.name}\n模型: ${formatModelLabel(job.model_type)}\n数据集: ${job.dataset_path}\n训练设备: ${trainingDevice}\n状态: ${job.status}\n进度: ${progress}\n阶段: ${phaseMessage}\n错误: ${errorMessage}\n模型文件: ${modelPath}\n提示: 模型是否保留由人工决定`;
         showNotification(detail, 'info');
     } catch (error) {
         showNotification('获取详情失败：' + getApiErrorMessage(error), 'error');

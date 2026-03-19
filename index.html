@@ -70,6 +70,192 @@
             transform: translateY(-2px);
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
         }
+
+        .dataset-command-panel {
+            position: relative;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at top right, rgba(96, 165, 250, 0.24), transparent 28%),
+                linear-gradient(135deg, #0f172a 0%, #162447 45%, #1d4ed8 100%);
+        }
+
+        .dataset-command-panel::after {
+            content: "";
+            position: absolute;
+            inset: auto -48px -56px auto;
+            width: 180px;
+            height: 180px;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.08);
+            filter: blur(10px);
+        }
+
+        .dataset-action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            border-radius: 9999px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(255, 255, 255, 0.08);
+            color: #eff6ff;
+            padding: 0.65rem 0.95rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+
+        .dataset-action-btn:hover {
+            transform: translateY(-1px);
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .dataset-action-btn--ghost {
+            background: rgba(15, 23, 42, 0.22);
+        }
+
+        .dataset-meta-card {
+            position: relative;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.09);
+            backdrop-filter: blur(10px);
+        }
+
+        .dataset-select {
+            min-height: 3.25rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: rgba(248, 250, 252, 0.98);
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+        }
+
+        .dataset-register-shell {
+            border-radius: 1.5rem;
+            overflow: hidden;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+        }
+
+        .dataset-register-header {
+            background:
+                radial-gradient(circle at top left, rgba(59, 130, 246, 0.18), transparent 30%),
+                linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        }
+
+        .dataset-mode-tab {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 9999px;
+            border: 1px solid #dbe4f0;
+            background: #ffffff;
+            color: #475569;
+            padding: 0.7rem 1rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+
+        .dataset-mode-tab:hover {
+            border-color: #93c5fd;
+            color: #1d4ed8;
+        }
+
+        .dataset-mode-tab.is-active {
+            background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
+            border-color: transparent;
+            color: #ffffff;
+            box-shadow: 0 14px 32px rgba(37, 99, 235, 0.22);
+        }
+
+        .dataset-form-card {
+            border-radius: 1.25rem;
+            border: 1px solid #e2e8f0;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+        }
+
+        .dataset-guide-card {
+            border-radius: 1.25rem;
+            border: 1px solid #dbeafe;
+            background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+        }
+
+        .dataset-folder-summary {
+            border-radius: 1rem;
+            border: 1px dashed #cbd5e1;
+            background: #f8fafc;
+            transition: all 0.2s ease;
+        }
+
+        .dataset-folder-summary--ready {
+            border-color: #60a5fa;
+            background: linear-gradient(180deg, #eff6ff 0%, #f8fbff 100%);
+            color: #1e3a8a;
+        }
+
+        .dataset-folder-summary--warning {
+            border-color: #f59e0b;
+            background: linear-gradient(180deg, #fffbeb 0%, #fff7ed 100%);
+            color: #92400e;
+        }
+
+        .dataset-input {
+            border-radius: 0.95rem;
+        }
+
+        .dataset-overview-grid {
+            display: grid;
+            gap: 0.75rem;
+            grid-template-columns: minmax(240px, 1.45fr) repeat(2, minmax(150px, 0.82fr));
+        }
+
+        .dataset-inline-pill {
+            white-space: nowrap;
+        }
+
+        .dataset-meta-label {
+            white-space: nowrap;
+        }
+
+        .dataset-meta-value {
+            display: block;
+            max-width: 100%;
+            white-space: nowrap;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .dataset-meta-value::-webkit-scrollbar {
+            display: none;
+        }
+
+        .dataset-meta-card--wide {
+            min-width: 0;
+        }
+
+        .dataset-primary-btn,
+        .dataset-secondary-btn {
+            white-space: nowrap;
+        }
+
+        @media (max-width: 1024px) {
+            .dataset-overview-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .dataset-action-btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -336,7 +522,7 @@
                             <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                                 <h2 class="text-lg font-semibold text-gray-900 mb-6">创建新的训练任务</h2>
                                 <form id="trainingForm" class="space-y-4">
-                                    <div class="grid grid-cols-2 gap-4">
+                                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                                         <div>
                                             <label for="trainingModelType" class="block text-sm font-medium text-gray-700 mb-1">模型类型:</label>
                                             <select id="trainingModelType" name="model_type" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" required>
@@ -348,30 +534,78 @@
                                                 <option value="resnet">ResNet</option>
                                             </select>
                                         </div>
-                                        <div>
-                                            <div class="mb-1 flex items-center justify-between gap-2">
-                                                <label for="trainingDatasetPath" class="block text-sm font-medium text-gray-700">训练数据集:</label>
-                                                <div class="flex items-center gap-2">
-                                                    <button type="button" id="registerDatasetBtn" class="text-xs text-primary-600 hover:text-primary-800 font-medium">
-                                                        新增数据集
-                                                    </button>
-                                                    <button type="button" id="uploadDatasetFolderOpenBtn" class="text-xs text-primary-600 hover:text-primary-800 font-medium">
-                                                        选择文件夹
-                                                    </button>
-                                                    <button type="button" id="refreshDatasetsBtn" class="text-xs text-gray-600 hover:text-gray-800 font-medium">
-                                                        刷新列表
-                                                    </button>
+                                        <div class="md:col-span-2">
+                                            <div class="dataset-command-panel rounded-3xl p-5 text-white">
+                                                <div class="relative z-10">
+                                                    <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                                                        <div class="flex items-start gap-4">
+                                                            <div class="h-12 w-12 rounded-2xl bg-white/10 ring-1 ring-white/10 flex items-center justify-center text-lg text-blue-100">
+                                                                <i class="fas fa-database"></i>
+                                                            </div>
+                                                            <div>
+                                                                <p class="text-[11px] uppercase tracking-[0.22em] text-blue-100/70">Training Dataset</p>
+                                                                <label for="trainingDatasetPath" class="mt-1 block text-lg font-semibold text-white">选择用于训练的数据集</label>
+                                                                <p class="mt-1 max-w-2xl text-sm text-slate-200">
+                                                                    从已登记的数据集中直接训练；大体量数据建议登记路径，小中型数据可直接上传整个文件夹。
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <div id="datasetCatalogBadge" class="dataset-inline-pill inline-flex items-center gap-2 self-start rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold text-blue-50">
+                                                            <i class="fas fa-layer-group text-[11px]"></i>
+                                                            <span>加载中</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+                                                        <div>
+                                                            <select id="trainingDatasetPath" name="dataset_path" class="dataset-select w-full px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-4 focus:ring-blue-200/60" required>
+                                                                <option value="">加载数据集中...</option>
+                                                            </select>
+                                                        </div>
+                                                        <div class="flex flex-wrap gap-2 xl:justify-end">
+                                                            <button type="button" id="registerDatasetBtn" class="dataset-action-btn">
+                                                                <i class="fas fa-pen-nib text-[11px]"></i>
+                                                                新增数据集
+                                                            </button>
+                                                            <button type="button" id="uploadDatasetFolderOpenBtn" class="dataset-action-btn">
+                                                                <i class="fas fa-folder-open text-[11px]"></i>
+                                                                选择文件夹
+                                                            </button>
+                                                            <button type="button" id="refreshDatasetsBtn" class="dataset-action-btn dataset-action-btn--ghost">
+                                                                <i class="fas fa-rotate-right text-[11px]"></i>
+                                                                刷新列表
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="dataset-overview-grid mt-4">
+                                                        <div class="dataset-meta-card dataset-meta-card--wide rounded-2xl p-4">
+                                                            <p class="dataset-meta-label text-[11px] uppercase tracking-[0.18em] text-blue-100/70">当前数据集</p>
+                                                            <p id="selectedDatasetName" class="dataset-meta-value mt-2 text-base font-semibold text-white">尚未选择</p>
+                                                        </div>
+                                                        <div class="dataset-meta-card rounded-2xl p-4">
+                                                            <p class="dataset-meta-label text-[11px] uppercase tracking-[0.18em] text-blue-100/70">处理状态</p>
+                                                            <p id="selectedDatasetStatus" class="dataset-meta-value mt-2 text-base font-semibold text-white">待加载</p>
+                                                        </div>
+                                                        <div class="dataset-meta-card rounded-2xl p-4">
+                                                            <p class="dataset-meta-label text-[11px] uppercase tracking-[0.18em] text-blue-100/70">样本规模</p>
+                                                            <p id="selectedDatasetSamples" class="dataset-meta-value mt-2 text-base font-semibold text-white">-</p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="mt-4 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 backdrop-blur-sm">
+                                                        <p id="trainingDatasetHint" class="text-sm text-slate-100">
+                                                            请选择已登记的数据集；本地数据集可通过“新增数据集”加入列表。
+                                                        </p>
+                                                        <p class="mt-2 text-xs text-blue-100/70">
+                                                            推荐目录：dataset/fake 与 dataset/real；若训练页中需要快速查看状态，可直接在这里切换和刷新。
+                                                        </p>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <select id="trainingDatasetPath" name="dataset_path" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" required>
-                                                <option value="">加载数据集中...</option>
-                                            </select>
-                                            <p id="trainingDatasetHint" class="mt-2 text-xs text-gray-500">
-                                                请选择已登记的数据集；本地数据集可通过“登记本地路径”加入下拉列表。
-                                            </p>
                                         </div>
                                     </div>
-                                    <div class="grid grid-cols-2 gap-4">
+                                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                                         <div>
                                             <label for="trainingEpochs" class="block text-sm font-medium text-gray-700 mb-1">训练轮数:</label>
                                             <input type="number" id="trainingEpochs" name="epochs" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" value="10" min="1" max="100" required>
@@ -381,7 +615,7 @@
                                             <input type="number" id="trainingBatchSize" name="batch_size" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" value="32" min="1" max="128" required>
                                         </div>
                                     </div>
-                                    <div class="grid grid-cols-2 gap-4">
+                                    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                                         <div>
                                             <label for="learningRate" class="block text-sm font-medium text-gray-700 mb-1">学习率:</label>
                                             <input type="number" id="learningRate" name="learning_rate" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" value="0.001" min="0.0001" max="0.1" step="0.0001" required>
@@ -409,43 +643,87 @@
                                 <div class="mt-4 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
                                     训练完成后会生成模型文件路径，请根据训练结果人工决定是否保留模型文件。
                                 </div>
-                                <div id="datasetRegisterPanel" class="mt-4 hidden rounded-lg border border-gray-200 bg-gray-50 p-4">
-                                    <div class="mb-4 flex items-center justify-between">
-                                        <h3 class="text-sm font-semibold text-gray-900">新增训练数据集</h3>
-                                        <button type="button" id="closeDatasetRegisterPanelBtn" class="text-sm text-gray-500 hover:text-gray-700">
-                                            <i class="fas fa-times"></i>
-                                        </button>
+                                <div id="datasetRegisterPanel" class="dataset-register-shell mt-5 hidden border border-slate-200 bg-white">
+                                    <div class="dataset-register-header border-b border-slate-200 px-5 py-5">
+                                        <div class="flex items-start justify-between gap-4">
+                                            <div>
+                                                <p class="text-[11px] uppercase tracking-[0.22em] text-slate-400">Dataset Intake</p>
+                                                <h3 class="mt-1 text-lg font-semibold text-slate-900">新增训练数据集</h3>
+                                                <p class="mt-1 text-sm text-slate-500">
+                                                    按场景选择导入方式：路径登记适合大数据集，整文件夹上传适合浏览器直接导入。
+                                                </p>
+                                            </div>
+                                            <button type="button" id="closeDatasetRegisterPanelBtn" class="h-10 w-10 rounded-full border border-slate-200 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </div>
+                                        <div class="mt-5 flex flex-wrap gap-2">
+                                            <button type="button" id="datasetModePathTab" class="dataset-mode-tab is-active">
+                                                <i class="fas fa-link mr-2 text-xs"></i>登记本地路径
+                                            </button>
+                                            <button type="button" id="datasetModeFolderTab" class="dataset-mode-tab">
+                                                <i class="fas fa-folder-tree mr-2 text-xs"></i>上传整个文件夹
+                                            </button>
+                                        </div>
                                     </div>
-                                    <p class="mb-4 text-xs text-gray-500">
-                                        路径登记适合后端可直接访问的本地目录；文件夹上传适合通过浏览器直接选择本地目录并上传到后端。
-                                    </p>
-                                    <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                                        <div class="rounded-lg border border-gray-200 bg-white p-4">
-                                            <h4 class="mb-3 text-sm font-medium text-gray-900">方式一：登记本地路径</h4>
-                                            <div class="space-y-3">
-                                                <input type="text" id="datasetRegisterName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="数据集名称">
-                                                <input type="text" id="datasetRegisterPath" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="如: /Users/xxx/datasets/myset">
-                                                <input type="text" id="datasetRegisterDescription" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="描述（可选）">
-                                                <button type="button" id="saveDatasetPathBtn" class="w-full bg-primary-600 text-white px-4 py-2 rounded-md hover:bg-primary-700 transition-colors">
-                                                    登记路径数据集
-                                                </button>
+
+                                    <div class="p-5">
+                                        <div id="datasetRegisterPathSection" class="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+                                            <div class="dataset-form-card p-5">
+                                                <h4 class="text-sm font-semibold text-slate-900">方式一：登记本地路径</h4>
+                                                <p class="mt-1 text-sm text-slate-500">适合后端可直接访问的本地磁盘、共享挂载目录或服务器数据盘。</p>
+                                                <div class="mt-4 space-y-3">
+                                                    <input type="text" id="datasetRegisterName" class="dataset-input w-full border border-slate-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="数据集名称">
+                                                    <input type="text" id="datasetRegisterPath" class="dataset-input w-full border border-slate-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="如: /Users/xxx/datasets/myset">
+                                                    <input type="text" id="datasetRegisterDescription" class="dataset-input w-full border border-slate-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="描述（可选）">
+                                                    <button type="button" id="saveDatasetPathBtn" class="dataset-primary-btn w-full rounded-2xl bg-primary-600 px-4 py-3 text-white transition-colors hover:bg-primary-700">
+                                                        <i class="fas fa-circle-check mr-2"></i>登记路径数据集
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="dataset-guide-card p-5">
+                                                <h4 class="text-sm font-semibold text-slate-900">推荐使用场景</h4>
+                                                <ul class="mt-3 space-y-2 text-sm text-slate-600">
+                                                    <li>• 数据集体量大，避免浏览器重复上传</li>
+                                                    <li>• 后端与数据目录在同一台机器或挂载盘</li>
+                                                    <li>• 适合长期复用的训练数据</li>
+                                                </ul>
+                                                <div class="mt-4 rounded-2xl bg-white/70 p-4 text-xs text-slate-500 ring-1 ring-inset ring-blue-100">
+                                                    推荐目录：<br>
+                                                    <span class="font-medium text-slate-700">dataset/fake</span> 与 <span class="font-medium text-slate-700">dataset/real</span>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div class="rounded-lg border border-gray-200 bg-white p-4">
-                                            <h4 class="mb-3 text-sm font-medium text-gray-900">方式二：选择本地文件夹上传</h4>
-                                            <div class="space-y-3">
-                                                <input type="file" id="trainingDatasetFolderPicker" class="hidden" webkitdirectory directory multiple>
-                                                <button type="button" id="chooseDatasetFolderBtn" class="w-full border border-gray-300 px-4 py-2 rounded-md text-gray-700 hover:bg-gray-50 transition-colors">
-                                                    选择 fake/real 数据集文件夹
-                                                </button>
-                                                <div id="datasetFolderSelectionSummary" class="rounded-md border border-dashed border-gray-300 bg-gray-50 p-3 text-xs text-gray-500">
-                                                    尚未选择文件夹
+
+                                        <div id="datasetRegisterFolderSection" class="hidden grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+                                            <div class="dataset-form-card p-5">
+                                                <h4 class="text-sm font-semibold text-slate-900">方式二：上传整个文件夹</h4>
+                                                <p class="mt-1 text-sm text-slate-500">适合浏览器直接挑选本地目录，前端会保留 fake/real 相对结构上传到后端。</p>
+                                                <div class="mt-4 space-y-3">
+                                                    <input type="file" id="trainingDatasetFolderPicker" class="hidden" webkitdirectory directory multiple>
+                                                    <button type="button" id="chooseDatasetFolderBtn" class="dataset-secondary-btn w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-slate-700 transition-colors hover:bg-slate-100">
+                                                        <i class="fas fa-folder-open mr-2"></i>选择 fake/real 数据集文件夹
+                                                    </button>
+                                                    <div id="datasetFolderSelectionSummary" class="dataset-folder-summary p-4 text-sm text-slate-500">
+                                                        尚未选择文件夹
+                                                    </div>
+                                                    <input type="text" id="datasetUploadName" class="dataset-input w-full border border-slate-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="上传后数据集名称">
+                                                    <input type="text" id="datasetUploadDescription" class="dataset-input w-full border border-slate-300 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="描述（可选）">
+                                                    <button type="button" id="uploadDatasetFolderBtn" class="dataset-primary-btn w-full rounded-2xl bg-slate-900 px-4 py-3 text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled>
+                                                        <i class="fas fa-cloud-arrow-up mr-2"></i>上传所选文件夹
+                                                    </button>
                                                 </div>
-                                                <input type="text" id="datasetUploadName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="上传后数据集名称">
-                                                <input type="text" id="datasetUploadDescription" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" placeholder="描述（可选）">
-                                                <button type="button" id="uploadDatasetFolderBtn" class="w-full bg-gray-900 text-white px-4 py-2 rounded-md hover:bg-gray-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed" disabled>
-                                                    上传所选文件夹
-                                                </button>
+                                            </div>
+                                            <div class="dataset-guide-card p-5">
+                                                <h4 class="text-sm font-semibold text-slate-900">上传前检查</h4>
+                                                <ul class="mt-3 space-y-2 text-sm text-slate-600">
+                                                    <li>• 确认同时包含 fake 和 real 子目录</li>
+                                                    <li>• 浏览器上传拿不到本地绝对路径，只会上传文件内容</li>
+                                                    <li>• 小中型数据集体验更好，超大数据集仍建议登记路径</li>
+                                                </ul>
+                                                <div class="mt-4 rounded-2xl bg-white/70 p-4 text-xs text-slate-500 ring-1 ring-inset ring-blue-100">
+                                                    上传成功后，数据集会自动加入下拉列表，并可直接发起训练。
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
