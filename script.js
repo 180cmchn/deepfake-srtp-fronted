@@ -3,6 +3,7 @@ let uploadedFiles = [];
 let currentSection = 'detection';
 let trendChart = null;
 let detectionHistoryCache = [];
+let detectionResultCache = [];
 let detectionModelCache = [];
 let detectionModelTypeCache = [];
 let trainingDatasetCache = [];
@@ -159,10 +160,12 @@ function initializeFileUpload() {
 function handleFiles(files) {
     uploadedFiles = Array.from(files);
     const validFiles = uploadedFiles.filter(file => {
-        const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'video/mp4', 'video/avi', 'video/mov'];
+        const extension = file.name.split('.').pop()?.toLowerCase();
+        const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'video/mp4', 'video/avi', 'video/mov', 'video/x-matroska', 'video/quicktime'];
+        const validExtensions = ['jpg', 'jpeg', 'png', 'bmp', 'tiff', 'mp4', 'avi', 'mov', 'mkv', 'wmv'];
         const maxSize = 100 * 1024 * 1024; // 100MB
         
-        if (!validTypes.includes(file.type)) {
+        if (!(validTypes.includes(file.type) || validExtensions.includes(extension))) {
             showNotification(`文件 ${file.name} 格式不支持`, 'error');
             return false;
         }
@@ -232,6 +235,7 @@ async function performDetection() {
     
     try {
         const results = await runDetectionRequest(uploadedFiles, selectedModel);
+        detectionResultCache = results;
 
         displayResults(results);
         resultsSection.classList.remove('hidden');
@@ -259,11 +263,11 @@ async function runDetectionRequest(files, selectedModel) {
             formData.append('file', file);
             appendDetectionModelSelection(formData, selectedModel);
 
-            const response = await axios.post(`${API_BASE_URL}/detection/detect/video`, formData, {
+            const response = await axios.post(`${API_BASE_URL}/detection/detect`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
 
-            return [normalizeVideoResult(response.data, file, selectedModel)];
+            return [normalizeDetectionResult(response.data, file, selectedModel, 0)];
         }
 
         const formData = new FormData();
@@ -274,7 +278,7 @@ async function runDetectionRequest(files, selectedModel) {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
 
-        return [normalizeDetectionResult(response.data, file, selectedModel)];
+        return [normalizeDetectionResult(response.data, file, selectedModel, 0)];
     }
 
     const formData = new FormData();
@@ -288,59 +292,53 @@ async function runDetectionRequest(files, selectedModel) {
     });
 
     const results = response.data.results || [];
-    return results.map((result, index) => normalizeDetectionResult(result, files[index], selectedModel));
+    return results.map((result, index) => normalizeDetectionResult(result, files[index], selectedModel, index));
 }
 
-function normalizeDetectionResult(response, file, selectedModel) {
+function normalizeDetectionResult(response, file, selectedModel, index = 0) {
     const fileName = file?.name || response?.file_info?.name || 'Unknown';
     const result = response?.result;
     const modelLabel = result?.model_info?.model_name || selectedModel.label || '-';
+    const recordId = response?.record_id || response?.file_info?.record_id || null;
 
     if (!response?.success || !result) {
         return {
+            id: recordId || `result-${index}`,
             filename: fileName,
             model: modelLabel,
             result: 'error',
-            confidence: '-'
+            confidence: '-',
+            processingTime: response?.processing_time?.toFixed?.(2) || '-',
+            errorMessage: response?.error_message || '检测失败',
+            createdAt: response?.created_at || null,
+            type: response?.file_info?.type || (isVideoFile(fileName) ? 'video' : 'image'),
         };
     }
 
     return {
+        id: recordId || `result-${index}`,
         filename: fileName,
         model: modelLabel,
         result: result.prediction,
         confidence: (result.confidence * 100).toFixed(1),
-        processingTime: result.processing_time?.toFixed(2) || response.processing_time?.toFixed(2)
-    };
-}
-
-function normalizeVideoResult(response, file, selectedModel) {
-    const fileName = file?.name || response?.video_info?.name || 'Unknown';
-    const result = response?.aggregated_result;
-    const modelLabel = result?.model_info?.model_name || selectedModel.label || '-';
-
-    if (!response?.success || !result) {
-        return {
-            filename: fileName,
-            model: modelLabel,
-            result: 'error',
-            confidence: '-'
-        };
-    }
-
-    return {
-        filename: fileName,
-        model: modelLabel,
-        result: result.prediction,
-        confidence: (result.confidence * 100).toFixed(1),
-        processingTime: result.processing_time?.toFixed(2) || response.processing_time?.toFixed(2)
+        processingTime: result.processing_time?.toFixed(2) || response.processing_time?.toFixed(2),
+        rawConfidence: result.confidence,
+        probabilities: result.probabilities || null,
+        processingTimeSeconds: result.processing_time || response.processing_time || null,
+        createdAt: response?.created_at || null,
+        type: response?.file_info?.type || (isVideoFile(fileName) ? 'video' : 'image'),
+        totalFrames: response?.file_info?.total_frames || null,
+        processedFrames: response?.file_info?.processed_frames || null,
+        duration: response?.file_info?.duration || null,
+        modelInfo: result.model_info || null,
+        errorMessage: response?.error_message || null,
     };
 }
 
 function displayResults(results) {
     const container = document.getElementById('resultsContainer');
 
-    const resultCards = results.map(result => {
+    const resultCards = results.map((result, index) => {
         const isSuccess = result.result === 'real' || result.result === 'fake';
         const statusText = result.result === 'real' ? '真实' : result.result === 'fake' ? '伪造' : '失败';
         const statusClass = result.result === 'real'
@@ -378,10 +376,10 @@ function displayResults(results) {
                 </div>
             </div>
             <div class="mt-3 flex gap-2">
-                <button class="text-sm text-primary-600 hover:text-primary-800 font-medium">
+                <button class="text-sm text-primary-600 hover:text-primary-800 font-medium" onclick="viewDetectionResultDetail(${index})">
                     <i class="fas fa-eye mr-1"></i> 查看详情
                 </button>
-                <button class="text-sm text-gray-600 hover:text-gray-800 font-medium">
+                <button class="text-sm text-gray-600 hover:text-gray-800 font-medium" onclick="downloadDetectionResultReport(${index})">
                     <i class="fas fa-download mr-1"></i> 下载报告
                 </button>
             </div>
@@ -446,12 +444,12 @@ async function loadDetectionStats() {
     try {
         const [statsResponse, modelsResponse] = await Promise.all([
             axios.get(`${API_BASE_URL}/detection/statistics`),
-            axios.get(`${API_BASE_URL}/models/`, { params: { limit: 100 } })
+            axios.get(`${API_BASE_URL}/detection/models`)
         ]);
 
         const stats = statsResponse.data;
         const models = modelsResponse.data.models || [];
-        const activeCount = models.filter(model => ['ready', 'deployed'].includes(model.status)).length;
+        const activeCount = models.length;
 
         totalEl.textContent = stats.total_detections.toLocaleString();
         avgConfidenceEl.textContent = formatAccuracy(stats.average_confidence);
@@ -466,6 +464,313 @@ async function loadDetectionStats() {
         avgTimeEl.textContent = '-';
         activeModelsEl.textContent = '-';
     }
+}
+
+function sanitizeReportFilename(value, fallback = 'report') {
+    const sanitized = String(value || fallback)
+        .replace(/\.[^/.]+$/, '')
+        .replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    return sanitized || fallback;
+}
+
+function buildReportDataFromCurrentResult(record) {
+    if (!record) return null;
+    return {
+        title: 'Deepfake 检测报告',
+        fileName: record.filename,
+        fileType: record.type === 'video' ? '视频' : '图片',
+        detectedAt: formatDateTime(record.createdAt),
+        modelName: record.model || '-',
+        predictionText: record.result === 'real' ? '真实' : record.result === 'fake' ? '伪造' : '失败',
+        predictionClass: record.result === 'real' ? 'real' : record.result === 'fake' ? 'fake' : 'error',
+        confidenceText: record.result === 'error' ? '-' : `${record.confidence}%`,
+        confidenceValue: typeof record.rawConfidence === 'number' ? record.rawConfidence : null,
+        processingTimeText: record.processingTime ? `${record.processingTime} 秒` : '-',
+        totalFrames: record.totalFrames ?? '-',
+        processedFrames: record.processedFrames ?? '-',
+        duration: record.duration ?? '-',
+        errorMessage: record.errorMessage || '',
+        probabilities: record.probabilities || null,
+        generatedAt: new Date().toLocaleString('zh-CN'),
+    };
+}
+
+function buildReportDataFromHistoryRecord(record) {
+    if (!record) return null;
+    const historyModelLabel = formatHistoryModelLabel(record);
+    return {
+        title: 'Deepfake 检测历史报告',
+        fileName: record.file_name,
+        fileType: record.file_type === 'video' ? '视频' : '图片',
+        detectedAt: formatDateTime(record.created_at),
+        modelName: historyModelLabel,
+        predictionText: record.prediction === 'real' ? '真实' : '伪造',
+        predictionClass: record.prediction === 'real' ? 'real' : 'fake',
+        confidenceText: formatAccuracy(record.confidence),
+        confidenceValue: typeof record.confidence === 'number' ? record.confidence : null,
+        processingTimeText: typeof record.processing_time === 'number' ? `${record.processing_time.toFixed(2)} 秒` : '-',
+        totalFrames: '-',
+        processedFrames: '-',
+        duration: '-',
+        errorMessage: '',
+        probabilities: null,
+        generatedAt: new Date().toLocaleString('zh-CN'),
+    };
+}
+
+function renderDetectionReportHtml(report) {
+    const predictionBadgeClass = report.predictionClass === 'real'
+        ? '#166534'
+        : report.predictionClass === 'fake'
+        ? '#991b1b'
+        : '#92400e';
+    const predictionBadgeBg = report.predictionClass === 'real'
+        ? '#dcfce7'
+        : report.predictionClass === 'fake'
+        ? '#fee2e2'
+        : '#fef3c7';
+    const confidencePercent = typeof report.confidenceValue === 'number'
+        ? `${Math.max(0, Math.min(100, report.confidenceValue * 100)).toFixed(1)}%`
+        : '0%';
+    const probabilityRows = report.probabilities
+        ? Object.entries(report.probabilities).map(([label, value]) => `
+            <tr>
+                <td>${escapeHtml(label)}</td>
+                <td>${formatAccuracy(value)}</td>
+            </tr>
+        `).join('')
+        : '<tr><td colspan="2">未返回类别概率</td></tr>';
+
+    return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(report.title)}</title>
+  <style>
+    body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #f3f4f6; color: #111827; margin: 0; padding: 32px; }
+    .sheet { max-width: 900px; margin: 0 auto; background: #fff; border-radius: 20px; box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08); overflow: hidden; }
+    .hero { padding: 28px 32px; background: linear-gradient(135deg, #0f172a, #1d4ed8); color: #fff; }
+    .hero h1 { margin: 0 0 8px; font-size: 28px; }
+    .hero p { margin: 0; opacity: 0.85; }
+    .section { padding: 24px 32px; border-top: 1px solid #e5e7eb; }
+    .section h2 { margin: 0 0 16px; font-size: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; }
+    .item { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px 16px; }
+    .label { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+    .value { font-size: 15px; color: #111827; word-break: break-word; }
+    .badge { display: inline-block; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; color: ${predictionBadgeClass}; background: ${predictionBadgeBg}; }
+    .meter { margin-top: 10px; background: #e5e7eb; border-radius: 999px; height: 10px; overflow: hidden; }
+    .meter > span { display: block; height: 100%; width: ${confidencePercent}; background: linear-gradient(90deg, #ef4444, #f59e0b, #22c55e); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
+    th { color: #6b7280; font-weight: 600; }
+    .note { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; border-radius: 14px; padding: 14px 16px; line-height: 1.7; }
+    .error { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 14px; padding: 14px 16px; line-height: 1.7; }
+    .footer { padding: 20px 32px 28px; color: #6b7280; font-size: 12px; }
+    @media (max-width: 720px) { body { padding: 12px; } .grid { grid-template-columns: 1fr; } .hero, .section, .footer { padding-left: 18px; padding-right: 18px; } }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="hero">
+      <h1>${escapeHtml(report.title)}</h1>
+      <p>由 Deepfake 检测平台自动生成</p>
+    </div>
+    <div class="section">
+      <h2>基础信息</h2>
+      <div class="grid">
+        <div class="item"><div class="label">文件名</div><div class="value">${escapeHtml(report.fileName)}</div></div>
+        <div class="item"><div class="label">文件类型</div><div class="value">${escapeHtml(report.fileType)}</div></div>
+        <div class="item"><div class="label">检测时间</div><div class="value">${escapeHtml(report.detectedAt)}</div></div>
+        <div class="item"><div class="label">使用模型</div><div class="value">${escapeHtml(report.modelName)}</div></div>
+      </div>
+    </div>
+    <div class="section">
+      <h2>检测结论</h2>
+      <div class="grid">
+        <div class="item"><div class="label">判定结果</div><div class="value"><span class="badge">${escapeHtml(report.predictionText)}</span></div></div>
+        <div class="item"><div class="label">处理时间</div><div class="value">${escapeHtml(report.processingTimeText)}</div></div>
+      </div>
+      <div class="item" style="margin-top: 16px;">
+        <div class="label">置信度</div>
+        <div class="value">${escapeHtml(report.confidenceText)}</div>
+        <div class="meter"><span></span></div>
+      </div>
+    </div>
+    <div class="section">
+      <h2>媒体分析</h2>
+      <div class="grid">
+        <div class="item"><div class="label">总帧数</div><div class="value">${escapeHtml(String(report.totalFrames))}</div></div>
+        <div class="item"><div class="label">处理帧数</div><div class="value">${escapeHtml(String(report.processedFrames))}</div></div>
+        <div class="item"><div class="label">时长</div><div class="value">${escapeHtml(String(report.duration))}</div></div>
+        <div class="item"><div class="label">生成时间</div><div class="value">${escapeHtml(report.generatedAt)}</div></div>
+      </div>
+    </div>
+    <div class="section">
+      <h2>类别概率</h2>
+      <table>
+        <thead><tr><th>类别</th><th>概率</th></tr></thead>
+        <tbody>${probabilityRows}</tbody>
+      </table>
+    </div>
+    ${report.errorMessage ? `<div class="section"><div class="error"><strong>错误信息：</strong>${escapeHtml(report.errorMessage)}</div></div>` : ''}
+    <div class="section">
+      <div class="note">本报告用于辅助研判，不能替代人工审核。若结果为“伪造”或置信度较低，建议结合原始来源、上下文和其他工具进行交叉验证。</div>
+    </div>
+    <div class="footer">Deepfake 检测平台 v1.0.0</div>
+  </div>
+</body>
+</html>`;
+}
+
+function downloadDetectionReportHtml(report, filenameBase) {
+    const html = renderDetectionReportHtml(report);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${sanitizeReportFilename(filenameBase)}_${Date.now()}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+}
+
+function getDetectionResultByIndex(index) {
+    return detectionResultCache[index] || null;
+}
+
+function viewDetectionResultDetail(index) {
+    const record = getDetectionResultByIndex(index);
+    if (!record) {
+        showNotification('结果不存在', 'error');
+        return;
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-start mb-4">
+                <h2 class="text-xl font-semibold text-gray-900">检测结果详情</h2>
+                <button onclick="this.closest('.fixed').remove()" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">文件名</label>
+                        <p class="text-sm text-gray-900 break-all">${escapeHtml(record.filename)}</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">检测时间</label>
+                        <p class="text-sm text-gray-900">${formatDateTime(record.createdAt)}</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">文件类型</label>
+                        <p class="text-sm text-gray-900">${record.type === 'video' ? '视频' : '图片'}</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">使用模型</label>
+                        <p class="text-sm text-gray-900">${escapeHtml(record.model)}</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">检测结果</label>
+                        <p class="text-sm text-gray-900">${record.result === 'real' ? '真实' : record.result === 'fake' ? '伪造' : '失败'}</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">处理时间</label>
+                        <p class="text-sm text-gray-900">${record.processingTime || '-'} 秒</p>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">置信度</label>
+                    <p class="text-sm text-gray-900">${record.result === 'error' ? '-' : `${record.confidence}%`}</p>
+                </div>
+                ${record.type === 'video' ? `
+                <div class="grid grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">总帧数</label>
+                        <p class="text-sm text-gray-900">${record.totalFrames ?? '-'}</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">处理帧数</label>
+                        <p class="text-sm text-gray-900">${record.processedFrames ?? '-'}</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">时长</label>
+                        <p class="text-sm text-gray-900">${record.duration ?? '-'} 秒</p>
+                    </div>
+                </div>` : ''}
+                ${record.errorMessage ? `
+                <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 break-all">
+                    ${escapeHtml(record.errorMessage)}
+                </div>` : ''}
+            </div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button onclick="downloadDetectionResultReport(${index})" class="px-4 py-2 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
+                    <i class="fas fa-download mr-2"></i> 下载报告
+                </button>
+                <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 text-sm bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
+                    关闭
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
+}
+
+function downloadDetectionResultReport(index) {
+    const record = getDetectionResultByIndex(index);
+    if (!record) {
+        showNotification('结果不存在', 'error');
+        return;
+    }
+
+    const reportContent = `
+Deepfake 检测报告
+
+检测信息:
+    - 文件名: ${record.filename}
+    - 文件类型: ${record.type === 'video' ? '视频' : '图片'}
+    - 检测时间: ${formatDateTime(record.createdAt)}
+    - 使用模型: ${record.model}
+
+检测结果:
+    - 判定结果: ${record.result === 'real' ? '真实' : record.result === 'fake' ? '伪造' : '失败'}
+    - 置信度: ${record.result === 'error' ? '-' : `${record.confidence}%`}
+    - 处理时间: ${record.processingTime || '-'} 秒
+    ${record.type === 'video' ? `- 总帧数: ${record.totalFrames ?? '-'}\n    - 处理帧数: ${record.processedFrames ?? '-'}\n    - 时长: ${record.duration ?? '-'} 秒` : ''}
+    ${record.errorMessage ? `- 错误信息: ${record.errorMessage}` : ''}
+
+生成时间: ${new Date().toLocaleString('zh-CN')}
+生成平台: Deepfake 检测平台 v1.0.0
+`;
+
+    const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `deepfake_result_${record.filename.replace(/\.[^/.]+$/, '')}_${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+
+    showNotification('报告下载成功', 'success');
 }
 
 function isVideoFile(filename) {
@@ -516,12 +821,13 @@ async function loadHistory() {
                 : 'bg-red-100 text-red-800';
             const resultText = record.prediction === 'real' ? '真实' : '伪造';
             const confidence = formatAccuracy(record.confidence);
+            const modelLabel = formatHistoryModelLabel(record);
 
             return `
                 <tr class="hover:bg-gray-50">
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${formatDateTime(record.created_at)}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${record.file_name}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${record.model_name || '-'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${modelLabel}</td>
                     <td class="px-6 py-4 whitespace-nowrap">
                         <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${resultClass}">
                             ${resultText}
@@ -1220,6 +1526,7 @@ async function loadTrainingJobs(options = {}) {
             const accuracy = formatAccuracy(job.results?.accuracy);
             const loss = formatLoss(job.results?.loss);
             const startedAt = formatDateTime(job.started_at || job.created_at);
+            const completedAt = job.completed_at ? formatDateTime(job.completed_at) : '—';
             const modelLabel = formatModelLabel(job.model_type);
             const modelPath = job.results?.model_path;
             const modelFileStatus = modelPath ? '已生成' : '未生成';
@@ -1244,6 +1551,7 @@ async function loadTrainingJobs(options = {}) {
                         <p class="text-sm text-gray-500">${modelLabel} • ${job.dataset_path}</p>
                         <p class="text-xs text-gray-400 mt-1">设备: ${trainingDevice}</p>
                         <p class="text-xs text-gray-400 mt-1">开始时间: ${startedAt}</p>
+                        <p class="text-xs text-gray-400 mt-1">结束时间: ${completedAt}</p>
                     </div>
                     <span class="px-2 py-1 text-xs font-medium rounded-full ${
                         job.status === 'running' 
@@ -1496,6 +1804,17 @@ function formatModelLabel(value) {
     return mapping[value] || value.toUpperCase();
 }
 
+function formatHistoryModelLabel(record) {
+    if (!record) return '-';
+    if (record.model_name && record.model_name !== 'Built-in Model') {
+        return record.model_type ? `${record.model_name} (${formatModelLabel(record.model_type)})` : record.model_name;
+    }
+    if (record.model_type) {
+        return formatModelLabel(record.model_type);
+    }
+    return record.model_name || '-';
+}
+
 function mapModelStatus(status) {
     const mapping = {
         training: '训练中',
@@ -1680,7 +1999,7 @@ function viewHistoryDetail(index) {
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">使用模型</label>
-                        <p class="text-sm text-gray-900">${record.model_name || '-'}</p>
+                        <p class="text-sm text-gray-900">${formatHistoryModelLabel(record)}</p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">检测结果</label>
@@ -1726,7 +2045,7 @@ function viewHistoryDetail(index) {
                         <i class="fas fa-info-circle mr-2"></i>技术说明
                     </h3>
                     <p class="text-sm text-blue-800">
-                        本检测结果基于 ${record.model_name || '未知模型'} 模型进行分析，该模型在多个公开数据集上进行了训练，
+                        本检测结果基于 ${formatHistoryModelLabel(record)} 模型进行分析，该模型在多个公开数据集上进行了训练，
                         具有较高的准确率。置信度表示模型对判断结果的确定程度。
                     </p>
                 </div>
@@ -1762,43 +2081,8 @@ function downloadReport(index) {
         return;
     }
     
-    // 生成报告内容
-    const reportContent = `
-Deepfake 检测报告
-
-检测信息:
-    - 文件名: ${record.file_name}
-    - 检测时间: ${formatDateTime(record.created_at)}
-    - 使用模型: ${record.model_name || '-'}
-
-检测结果:
-    - 判定结果: ${record.prediction === 'real' ? '真实' : '伪造'}
-    - 置信度: ${formatAccuracy(record.confidence)}
-    ${record.processing_time ? `- 处理时间: ${record.processing_time.toFixed(2)} 秒` : ''}
-
-分析说明:
-    ${record.prediction === 'real' 
-        ? '经过深度学习模型分析，该文件被判定为真实内容，未发现明显的深度伪造痕迹。'
-        : '经过深度学习模型分析，该文件被判定为可能包含深度伪造内容，建议进一步验证。'}
-
-技术说明:
-    本检测结果基于 ${record.model_name || '未知模型'} 模型进行分析，该模型在多个公开数据集上进行了训练，
-    具有较高的准确率。置信度表示模型对判断结果的确定程度。
-
-生成时间: ${new Date().toLocaleString('zh-CN')}
-生成平台: Deepfake 检测平台 v1.0.0
-`;
-    
-    // 创建下载链接
-    const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `deepfake_report_${record.file_name.replace(/\.[^/.]+$/, '')}_${new Date().getTime()}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
+    const report = buildReportDataFromHistoryRecord(record);
+    downloadDetectionReportHtml(report, `deepfake_report_${record.file_name}`);
     
     showNotification('报告下载成功', 'success');
 }
