@@ -2,6 +2,8 @@
 let uploadedFiles = [];
 let currentSection = 'detection';
 let trendChart = null;
+let trainingEpochChart = null;
+let trainingDetailModal = null;
 let detectionHistoryCache = [];
 let detectionResultCache = [];
 let detectionModelCache = [];
@@ -1783,6 +1785,141 @@ function formatAccuracy(value) {
 function formatLoss(value) {
     if (value === null || value === undefined) return '-';
     return value.toFixed(4);
+}
+
+function getTrainingStatusLabel(status) {
+    const mapping = {
+        running: '训练中',
+        completed: '已完成',
+        failed: '失败',
+        cancelled: '已取消',
+        pending: '等待中'
+    };
+    return mapping[status] || status || '-';
+}
+
+function getTrainingStatusClass(status) {
+    if (status === 'running') return 'bg-blue-100 text-blue-800';
+    if (status === 'completed') return 'bg-green-100 text-green-800';
+    if (status === 'failed') return 'bg-red-100 text-red-800';
+    if (status === 'cancelled') return 'bg-amber-100 text-amber-800';
+    return 'bg-gray-100 text-gray-800';
+}
+
+function getTrainingPhaseMessage(job) {
+    return job.progress_message || (job.status === 'completed'
+        ? '训练完成，可决定是否保留模型文件'
+        : job.status === 'failed'
+        ? '训练失败'
+        : job.status === 'cancelled'
+        ? '训练已取消'
+        : job.status === 'running'
+        ? '训练进行中'
+        : '等待开始训练');
+}
+
+function formatTrainingPreprocessingStage(stage) {
+    const mapping = {
+        scan_dataset: '扫描数据集',
+        prepare_temporal_dataset: '准备时序数据集',
+        prepare_sequence_dataset: '准备视频片段',
+        collect_media_sources: '收集图像与视频源',
+        collect_train_samples: '收集训练样本',
+        collect_val_samples: '收集验证样本',
+        expand_train_video_samples: '展开训练集视频采样帧',
+        expand_val_video_samples: '展开验证集视频采样帧',
+        cache_video_frames: '缓存视频帧',
+        build_dataloader: '构建数据加载器',
+        scan_temporal_dataset: '扫描时序数据集',
+        collect_temporal_sources: '收集时序源',
+        collect_train_temporal_sources: '收集训练时序源',
+        collect_val_temporal_sources: '收集验证时序源',
+        expand_temporal_sources: '生成时序片段',
+        extract_video_clips: '提取视频片段',
+        build_temporal_dataloader: '构建时序数据加载器',
+        dataset_ready: '数据集准备完成',
+        temporal_dataset_ready: '时序数据准备完成',
+        sequence_dataset_ready: '视频片段准备完成'
+    };
+    return mapping[stage] || stage || '数据准备中';
+}
+
+function formatTrainingPreprocessingUnit(unit) {
+    const mapping = {
+        frames: '帧',
+        clips: '片段',
+        samples: '样本',
+        sources: '数据源',
+        phase: '阶段'
+    };
+    return mapping[unit] || unit || '';
+}
+
+function hasTrainingPreprocessingInfo(job) {
+    return Boolean(
+        job && (
+            job.preprocessing_stage ||
+            typeof job.preprocessing_progress === 'number' ||
+            typeof job.preprocessing_current === 'number' ||
+            typeof job.preprocessing_total === 'number'
+        )
+    );
+}
+
+function getTrainingEpochHint(job, progress, currentEpoch, totalEpochs) {
+    if (job.status === 'running' && (currentEpoch === 0 || currentEpoch === '0') && hasTrainingPreprocessingInfo(job)) {
+        return '数据集预处理中';
+    }
+    const normalizedCurrentEpoch = currentEpoch === null || currentEpoch === undefined ? '-' : currentEpoch;
+    const normalizedTotalEpochs = totalEpochs === null || totalEpochs === undefined ? (job.parameters?.epochs ?? '-') : totalEpochs;
+    return `Epoch ${normalizedCurrentEpoch}/${normalizedTotalEpochs}`;
+}
+
+function buildTrainingPreprocessingMarkup(job) {
+    if (!hasTrainingPreprocessingInfo(job)) {
+        return '';
+    }
+
+    const stageLabel = formatTrainingPreprocessingStage(job.preprocessing_stage);
+    const progress = typeof job.preprocessing_progress === 'number' ? Math.max(0, Math.min(100, job.preprocessing_progress)) : null;
+    const unitLabel = formatTrainingPreprocessingUnit(job.preprocessing_unit);
+    const countText = (typeof job.preprocessing_current === 'number' && typeof job.preprocessing_total === 'number')
+        ? `${job.preprocessing_current}/${job.preprocessing_total}${unitLabel ? ` ${unitLabel}` : ''}`
+        : '';
+
+    return `
+        <div class="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-3">
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">数据准备</p>
+                    <p class="mt-1 text-sm font-medium text-sky-900">${escapeHtml(stageLabel)}</p>
+                    ${countText ? `<p class="mt-1 text-xs text-sky-700">${escapeHtml(countText)}</p>` : ''}
+                </div>
+                ${progress !== null ? `<span class="text-xs font-semibold text-sky-700">${progress.toFixed(1)}%</span>` : ''}
+            </div>
+            ${progress !== null ? `
+                <div class="mt-3 h-2 w-full rounded-full bg-sky-100">
+                    <div class="h-2 rounded-full bg-sky-500 transition-all duration-300" style="width: ${progress}%"></div>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+function getLatestTrainingMetric(metricsResponse) {
+    const metrics = metricsResponse?.metrics || [];
+    return metrics.length ? metrics[metrics.length - 1] : null;
+}
+
+function getBestValidationMetric(metricsResponse) {
+    const metrics = metricsResponse?.metrics || [];
+    if (!metrics.length) return null;
+    return metrics.reduce((best, point) => {
+        if (!best) return point;
+        const pointValue = typeof point.val_accuracy === 'number' ? point.val_accuracy : -Infinity;
+        const bestValue = typeof best.val_accuracy === 'number' ? best.val_accuracy : -Infinity;
+        return pointValue > bestValue ? point : best;
+    }, null);
 }
 
 function formatDateTime(value) {
