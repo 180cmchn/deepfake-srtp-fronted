@@ -4,6 +4,8 @@ let currentSection = 'detection';
 let trendChart = null;
 let trainingEpochChart = null;
 let trainingDetailModal = null;
+let trainingDetailJobId = null;
+let modelDetailModal = null;
 let detectionHistoryCache = [];
 let detectionResultCache = [];
 let detectionModelCache = [];
@@ -898,24 +900,25 @@ async function loadModels() {
             const statusLabel = mapModelStatus(model.status);
             const statusClass = mapModelStatusClass(model.status);
             const accuracy = formatAccuracy(model.metrics?.accuracy);
+            const primaryActionLabel = model.is_default ? '默认模型详情' : '查看详情';
 
             return `
             <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 card-hover">
                 <div class="flex items-center justify-between mb-4">
                     <div class="flex items-center">
                         <div class="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg flex items-center justify-center text-white font-bold">
-                            ${model.name.charAt(0)}
+                            ${escapeHtml(model.name.charAt(0))}
                         </div>
                         <div class="ml-3">
-                            <h3 class="font-semibold text-gray-900">${model.name}</h3>
-                            <p class="text-sm text-gray-500">v${model.version}</p>
+                            <h3 class="font-semibold text-gray-900">${escapeHtml(model.name)}</h3>
+                            <p class="text-sm text-gray-500">v${escapeHtml(model.version)}</p>
                         </div>
                     </div>
                     <span class="px-2 py-1 text-xs font-medium rounded-full ${statusClass}">
                         ${statusLabel}
                     </span>
                 </div>
-                <p class="text-sm text-gray-600 mb-4">${model.description || '暂无描述'}</p>
+                <p class="text-sm text-gray-600 mb-4">${escapeHtml(model.description || '暂无描述')}</p>
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div class="text-center p-2 bg-gray-50 rounded">
                         <p class="text-lg font-semibold text-gray-900">${accuracy}</p>
@@ -927,12 +930,18 @@ async function loadModels() {
                     </div>
                 </div>
                 <div class="flex gap-2">
-                    <button class="flex-1 px-3 py-2 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors">
-                        ${model.is_default ? '默认模型' : '查看详情'}
+                    <button class="flex-1 px-3 py-2 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 transition-colors" onclick="viewModelDetail(${model.id})">
+                        ${primaryActionLabel}
                     </button>
-                    <button class="px-3 py-2 text-sm border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors">
-                        详情
-                    </button>
+                    ${model.training_job_id ? `
+                        <button class="px-3 py-2 text-sm border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors" onclick="viewTrainingJob(${model.training_job_id})">
+                            关联训练
+                        </button>
+                    ` : `
+                        <button class="px-3 py-2 text-sm border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors" onclick="viewModelDetail(${model.id})">
+                            详情
+                        </button>
+                    `}
                 </div>
             </div>
         `;
@@ -948,6 +957,167 @@ async function loadModels() {
         `;
         showNotification('加载模型失败：' + getApiErrorMessage(error), 'error');
     }
+}
+
+async function viewModelDetail(modelId) {
+    renderModelDetailLoading();
+
+    try {
+        const response = await axios.get(`${API_BASE_URL}/models/${modelId}`);
+        renderModelDetailModal(response.data);
+    } catch (error) {
+        closeModelDetailModal();
+        showNotification('获取模型详情失败：' + getApiErrorMessage(error), 'error');
+    }
+}
+
+function ensureModelDetailModal() {
+    if (modelDetailModal) {
+        return modelDetailModal;
+    }
+
+    const modal = document.createElement('div');
+    modal.id = 'modelDetailModal';
+    modal.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4';
+    modal.innerHTML = `
+        <div class="relative max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+                <div>
+                    <p class="text-[11px] uppercase tracking-[0.22em] text-slate-400">Model Detail</p>
+                    <h3 class="mt-1 text-xl font-semibold text-slate-900">模型详情</h3>
+                </div>
+                <button type="button" data-role="close-model-detail" class="h-10 w-10 rounded-full border border-slate-200 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="modelDetailBody" class="max-h-[calc(90vh-88px)] overflow-y-auto px-6 py-6"></div>
+        </div>
+    `;
+
+    modal.addEventListener('click', event => {
+        if (event.target === modal || event.target.closest('[data-role="close-model-detail"]')) {
+            closeModelDetailModal();
+        }
+    });
+
+    document.body.appendChild(modal);
+    modelDetailModal = modal;
+    return modal;
+}
+
+function renderModelDetailLoading() {
+    const modal = ensureModelDetailModal();
+    const body = modal.querySelector('#modelDetailBody');
+    if (!body) return;
+
+    body.innerHTML = `
+        <div class="flex min-h-[280px] items-center justify-center text-slate-500">
+            <div class="text-center">
+                <i class="fas fa-spinner fa-spin text-3xl text-primary-600"></i>
+                <p class="mt-4 text-sm">正在从后端加载模型详情...</p>
+            </div>
+        </div>
+    `;
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.classList.add('overflow-hidden');
+}
+
+function closeModelDetailModal() {
+    if (!modelDetailModal) {
+        return;
+    }
+    modelDetailModal.classList.add('hidden');
+    modelDetailModal.classList.remove('flex');
+    document.body.classList.remove('overflow-hidden');
+}
+
+function renderModelDetailModal(model) {
+    const modal = ensureModelDetailModal();
+    const body = modal.querySelector('#modelDetailBody');
+    if (!body) return;
+
+    const metrics = model.metrics || {};
+    const deploymentInfo = renderJsonPanel(model.deployment_info, '暂无部署信息');
+    const parameterInfo = renderJsonPanel(model.parameters, '暂无模型参数');
+    const confusionMatrix = renderJsonPanel(metrics.confusion_matrix, '暂无混淆矩阵');
+    const classificationReport = renderJsonPanel(metrics.classification_report, '暂无分类报告');
+
+    body.innerHTML = `
+        <div class="space-y-6">
+            <div class="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)]">
+                <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <h4 class="text-2xl font-semibold text-slate-900 break-all">${escapeHtml(model.name)}</h4>
+                            <p class="mt-2 text-sm text-slate-600">${escapeHtml(formatModelLabel(model.model_type))} · v${escapeHtml(model.version)}</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            ${model.is_default ? '<span class="inline-flex items-center rounded-full bg-primary-100 px-3 py-1 text-xs font-semibold text-primary-700">默认模型</span>' : ''}
+                            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${mapModelStatusClass(model.status)}">${escapeHtml(mapModelStatus(model.status))}</span>
+                        </div>
+                    </div>
+                    <p class="mt-4 text-sm leading-6 text-slate-600">${escapeHtml(model.description || '暂无描述')}</p>
+                    <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">准确率</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.accuracy)}</p></div>
+                        <div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">Precision</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.precision)}</p></div>
+                        <div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">Recall</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.recall)}</p></div>
+                        <div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">F1 Score</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.f1_score)}</p></div>
+                    </div>
+                </div>
+                <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                    <p class="text-[11px] uppercase tracking-[0.22em] text-slate-400">Registry</p>
+                    <div class="mt-4 space-y-3 text-sm text-slate-600">
+                        <div class="flex justify-between gap-4"><span>模型 ID</span><span class="text-right text-slate-900">${escapeHtml(String(model.id))}</span></div>
+                        <div class="flex justify-between gap-4"><span>输入尺寸</span><span class="text-right text-slate-900">${escapeHtml(String(model.input_size || '-'))}</span></div>
+                        <div class="flex justify-between gap-4"><span>类别数</span><span class="text-right text-slate-900">${escapeHtml(String(model.num_classes || '-'))}</span></div>
+                        <div class="flex justify-between gap-4"><span>训练任务</span><span class="text-right text-slate-900">${escapeHtml(String(model.training_job_id || '-'))}</span></div>
+                        <div class="flex justify-between gap-4"><span>创建时间</span><span class="text-right text-slate-900">${escapeHtml(formatDateTime(model.created_at))}</span></div>
+                        <div class="flex justify-between gap-4"><span>更新时间</span><span class="text-right text-slate-900">${escapeHtml(formatDateTime(model.updated_at))}</span></div>
+                    </div>
+                    <div class="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                        <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Model File</p>
+                        <p class="mt-2 break-all text-slate-900">${escapeHtml(model.file_path || '未登记')}</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid gap-6 xl:grid-cols-2">
+                <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                    <h5 class="text-lg font-semibold text-slate-900">模型参数</h5>
+                    <div class="mt-4">${parameterInfo}</div>
+                </div>
+                <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                    <h5 class="text-lg font-semibold text-slate-900">部署信息</h5>
+                    <div class="mt-4">${deploymentInfo}</div>
+                </div>
+            </div>
+
+            <div class="grid gap-6 xl:grid-cols-2">
+                <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                    <h5 class="text-lg font-semibold text-slate-900">混淆矩阵</h5>
+                    <div class="mt-4">${confusionMatrix}</div>
+                </div>
+                <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                    <h5 class="text-lg font-semibold text-slate-900">分类报告</h5>
+                    <div class="mt-4">${classificationReport}</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.classList.add('overflow-hidden');
+}
+
+function renderJsonPanel(value, emptyText) {
+    if (!value || (typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length)) {
+        return `<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">${escapeHtml(emptyText)}</div>`;
+    }
+
+    return `<pre class="overflow-x-auto rounded-2xl bg-slate-950 px-4 py-4 text-xs leading-6 text-slate-100">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
 }
 
 // 训练功能
@@ -1523,48 +1693,37 @@ async function loadTrainingJobs(options = {}) {
             const epochs = job.parameters?.epochs ?? '-';
             const totalEpochs = job.total_epochs ?? (typeof epochs === 'number' ? epochs : null);
             const currentEpoch = job.current_epoch ?? (totalEpochs && progress > 0
-                ? Math.max(1, Math.round((Math.min(progress, 99) / 100) * totalEpochs))
-                : '-');
-            const accuracy = formatAccuracy(job.results?.accuracy);
-            const loss = formatLoss(job.results?.loss);
+                ? Math.max(0, Math.round((Math.min(progress, 99) / 100) * totalEpochs))
+                : 0);
+            const validationAccuracy = formatAccuracy(job.results?.val_accuracy ?? job.results?.accuracy);
+            const validationLoss = formatLoss(job.results?.val_loss ?? job.results?.loss);
             const startedAt = formatDateTime(job.started_at || job.created_at);
             const completedAt = job.completed_at ? formatDateTime(job.completed_at) : '—';
             const modelLabel = formatModelLabel(job.model_type);
             const modelPath = job.results?.model_path;
             const modelFileStatus = modelPath ? '已生成' : '未生成';
             const trainingDevice = (job.parameters?.training_device || 'auto').toUpperCase();
-            const phaseMessage = job.progress_message || (job.status === 'completed'
-                ? '训练完成，可决定是否保留模型文件'
-                : job.status === 'failed'
-                ? '训练失败'
-                : job.status === 'cancelled'
-                ? '训练已取消'
-                : job.status === 'running'
-                ? '训练进行中'
-                : '等待开始训练');
+            const phaseMessage = getTrainingPhaseMessage(job);
             const shouldShowProgress = ['running', 'completed'].includes(job.status);
             const errorMessage = job.error_message || '';
+            const epochHint = getTrainingEpochHint(job, progress, currentEpoch, totalEpochs ?? epochs);
+            const preprocessingMarkup = buildTrainingPreprocessingMarkup(job);
+            const bestEpoch = job.results?.best_epoch;
 
             return `
-            <div class="border border-gray-200 rounded-lg p-4 hover:border-primary-300 transition-colors">
+            <div class="border border-gray-200 rounded-xl p-4 hover:border-primary-300 transition-colors shadow-sm">
                 <div class="flex justify-between items-start mb-3">
                     <div>
-                        <h4 class="font-medium text-gray-900">${job.name}</h4>
-                        <p class="text-sm text-gray-500">${modelLabel} • ${job.dataset_path}</p>
-                        <p class="text-xs text-gray-400 mt-1">设备: ${trainingDevice}</p>
-                        <p class="text-xs text-gray-400 mt-1">开始时间: ${startedAt}</p>
-                        <p class="text-xs text-gray-400 mt-1">结束时间: ${completedAt}</p>
+                        <h4 class="font-medium text-gray-900 break-all">${escapeHtml(job.name)}</h4>
+                        <p class="text-sm text-gray-500 break-all">${escapeHtml(modelLabel)} • ${escapeHtml(job.dataset_path)}</p>
+                        <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400">
+                            <span>设备: ${escapeHtml(trainingDevice)}</span>
+                            <span>开始: ${escapeHtml(startedAt)}</span>
+                            <span>结束: ${escapeHtml(completedAt)}</span>
+                        </div>
                     </div>
-                    <span class="px-2 py-1 text-xs font-medium rounded-full ${
-                        job.status === 'running' 
-                            ? 'bg-blue-100 text-blue-800'
-                            : job.status === 'completed'
-                            ? 'bg-green-100 text-green-800'
-                            : job.status === 'failed'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-gray-100 text-gray-800'
-                    }">
-                        ${job.status === 'running' ? '训练中' : job.status === 'completed' ? '已完成' : job.status === 'failed' ? '失败' : job.status === 'cancelled' ? '已取消' : '等待中'}
+                    <span class="px-2 py-1 text-xs font-medium rounded-full ${getTrainingStatusClass(job.status)}">
+                        ${getTrainingStatusLabel(job.status)}
                     </span>
                 </div>
                 
@@ -1572,16 +1731,18 @@ async function loadTrainingJobs(options = {}) {
                     ${escapeHtml(phaseMessage)}
                 </div>
 
+                ${preprocessingMarkup}
+
                 ${shouldShowProgress ? `
                     <div class="mb-3">
                         <div class="flex justify-between text-sm mb-1">
-                            <span class="text-gray-600">进度</span>
+                            <span class="text-gray-600">整体进度</span>
                             <span class="font-medium">${progress.toFixed(1)}%</span>
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2">
                             <div class="bg-primary-600 h-2 rounded-full transition-all duration-300" style="width: ${progress}%"></div>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1">Epoch ${currentEpoch}/${totalEpochs ?? epochs}</p>
+                        <p class="text-xs text-gray-500 mt-1">${escapeHtml(epochHint)}</p>
                     </div>
                 ` : ''}
 
@@ -1591,18 +1752,22 @@ async function loadTrainingJobs(options = {}) {
                     </div>
                 ` : ''}
                 
-                <div class="grid grid-cols-3 gap-2 mb-3">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
                     <div class="text-center p-2 bg-gray-50 rounded">
-                        <p class="text-sm font-semibold text-gray-900">${accuracy}</p>
-                        <p class="text-xs text-gray-500">准确率</p>
+                        <p class="text-sm font-semibold text-gray-900">${validationAccuracy}</p>
+                        <p class="text-xs text-gray-500">验证准确率</p>
                     </div>
                     <div class="text-center p-2 bg-gray-50 rounded">
-                        <p class="text-sm font-semibold text-gray-900">${loss}</p>
-                        <p class="text-xs text-gray-500">损失</p>
+                        <p class="text-sm font-semibold text-gray-900">${validationLoss}</p>
+                        <p class="text-xs text-gray-500">验证损失</p>
                     </div>
                     <div class="text-center p-2 bg-gray-50 rounded">
                         <p class="text-sm font-semibold text-gray-900">${epochs}</p>
                         <p class="text-xs text-gray-500">总轮数</p>
+                    </div>
+                    <div class="text-center p-2 bg-gray-50 rounded">
+                        <p class="text-sm font-semibold text-gray-900">${bestEpoch ?? '-'}</p>
+                        <p class="text-xs text-gray-500">最佳轮次</p>
                     </div>
                 </div>
 
@@ -1639,6 +1804,14 @@ async function loadTrainingJobs(options = {}) {
         }).join('');
 
         container.innerHTML = jobCards;
+
+        if (trainingDetailJobId && trainingDetailModal && !trainingDetailModal.classList.contains('hidden')) {
+            const activeJob = jobs.find(job => job.id === trainingDetailJobId);
+            if (activeJob && ['pending', 'running'].includes(activeJob.status)) {
+                renderTrainingDetailModalLoading(trainingDetailJobId, true);
+                refreshTrainingDetailModal(trainingDetailJobId, { silent: true });
+            }
+        }
     } catch (error) {
         container.innerHTML = `
             <div class="text-center py-8 text-red-500">
@@ -1673,18 +1846,404 @@ async function stopTrainingJob(jobId) {
 }
 
 async function viewTrainingJob(jobId) {
+    renderTrainingDetailModalLoading(jobId, false);
+    await refreshTrainingDetailModal(jobId);
+}
+
+async function refreshTrainingDetailModal(jobId, options = {}) {
     try {
-        const response = await axios.get(`${API_BASE_URL}/training/jobs/${jobId}`);
-        const job = response.data;
-        const progress = typeof job.progress === 'number' ? job.progress.toFixed(1) + '%' : '-';
-        const modelPath = job.results?.model_path || '-';
-        const trainingDevice = (job.parameters?.training_device || 'auto').toUpperCase();
-        const phaseMessage = job.progress_message || '-';
-        const errorMessage = job.error_message || '-';
-        const detail = `训练任务: ${job.name}\n模型: ${formatModelLabel(job.model_type)}\n数据集: ${job.dataset_path}\n训练设备: ${trainingDevice}\n状态: ${job.status}\n进度: ${progress}\n阶段: ${phaseMessage}\n错误: ${errorMessage}\n模型文件: ${modelPath}\n提示: 模型是否保留由人工决定`;
-        showNotification(detail, 'info');
+        const [jobResponse, metricsResponse] = await Promise.all([
+            axios.get(`${API_BASE_URL}/training/jobs/${jobId}`),
+            axios.get(`${API_BASE_URL}/training/jobs/${jobId}/epoch-metrics`)
+        ]);
+        renderTrainingDetailModal(jobResponse.data, metricsResponse.data);
     } catch (error) {
-        showNotification('获取详情失败：' + getApiErrorMessage(error), 'error');
+        closeTrainingDetailModal();
+        if (!options.silent) {
+            showNotification('获取详情失败：' + getApiErrorMessage(error), 'error');
+        }
+    }
+}
+
+function ensureTrainingDetailModal() {
+    if (trainingDetailModal) {
+        return trainingDetailModal;
+    }
+
+    const modal = document.createElement('div');
+    modal.id = 'trainingDetailModal';
+    modal.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4';
+    modal.innerHTML = `
+        <div class="relative max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+                <div>
+                    <p class="text-[11px] uppercase tracking-[0.22em] text-slate-400">Training Detail</p>
+                    <h3 class="mt-1 text-xl font-semibold text-slate-900">训练任务详情</h3>
+                </div>
+                <button type="button" data-role="close-training-detail" class="h-10 w-10 rounded-full border border-slate-200 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="trainingDetailBody" class="max-h-[calc(92vh-88px)] overflow-y-auto px-6 py-6"></div>
+        </div>
+    `;
+
+    modal.addEventListener('click', event => {
+        if (event.target === modal || event.target.closest('[data-role="close-training-detail"]')) {
+            closeTrainingDetailModal();
+        }
+    });
+
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && trainingDetailModal && !trainingDetailModal.classList.contains('hidden')) {
+            closeTrainingDetailModal();
+        }
+    });
+
+    document.body.appendChild(modal);
+    trainingDetailModal = modal;
+    return modal;
+}
+
+function renderTrainingDetailModalLoading(jobId, isRefreshing) {
+    const modal = ensureTrainingDetailModal();
+    const body = modal.querySelector('#trainingDetailBody');
+    trainingDetailJobId = jobId;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.classList.add('overflow-hidden');
+
+    if (!body || isRefreshing) {
+        return;
+    }
+
+    body.innerHTML = `
+        <div class="flex min-h-[320px] items-center justify-center text-slate-500">
+            <div class="text-center">
+                <i class="fas fa-spinner fa-spin text-3xl text-primary-600"></i>
+                <p class="mt-4 text-sm">正在加载训练详情...</p>
+            </div>
+        </div>
+    `;
+}
+
+function closeTrainingDetailModal() {
+    if (trainingEpochChart) {
+        trainingEpochChart.destroy();
+        trainingEpochChart = null;
+    }
+    if (trainingDetailModal) {
+        trainingDetailModal.classList.add('hidden');
+        trainingDetailModal.classList.remove('flex');
+    }
+    trainingDetailJobId = null;
+    document.body.classList.remove('overflow-hidden');
+}
+
+function renderTrainingDetailModal(job, metricsResponse) {
+    const modal = ensureTrainingDetailModal();
+    const body = modal.querySelector('#trainingDetailBody');
+    if (!body) return;
+
+    trainingDetailJobId = job.id;
+    const progress = typeof job.progress === 'number' ? job.progress : 0;
+    const totalEpochs = job.total_epochs ?? job.parameters?.epochs ?? metricsResponse?.total_epochs ?? '-';
+    const currentEpoch = job.current_epoch ?? metricsResponse?.completed_epochs ?? 0;
+    const latestMetric = getLatestTrainingMetric(metricsResponse);
+    const bestMetric = getBestValidationMetric(metricsResponse);
+    const phaseMessage = getTrainingPhaseMessage(job);
+    const trainingDevice = (job.parameters?.training_device || 'auto').toUpperCase();
+    const validationAccuracy = formatAccuracy(job.results?.val_accuracy ?? job.results?.accuracy);
+    const validationLoss = formatLoss(job.results?.val_loss ?? job.results?.loss);
+    const latestTrainAccuracy = formatAccuracy(latestMetric?.train_accuracy);
+    const latestTrainLoss = formatLoss(latestMetric?.train_loss);
+    const latestValAccuracy = formatAccuracy(latestMetric?.val_accuracy ?? job.results?.val_accuracy ?? job.results?.accuracy);
+    const latestValLoss = formatLoss(latestMetric?.val_loss ?? job.results?.val_loss ?? job.results?.loss);
+    const bestValAccuracy = formatAccuracy(bestMetric?.val_accuracy ?? job.results?.val_accuracy ?? job.results?.accuracy);
+    const bestValLoss = formatLoss(bestMetric?.val_loss ?? job.results?.val_loss ?? job.results?.loss);
+    const preprocessingMarkup = buildTrainingPreprocessingMarkup(job);
+    const chartDownloadDisabled = !metricsResponse?.available;
+
+    body.innerHTML = `
+        <div class="space-y-6">
+            <div class="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
+                <div class="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                    <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                            <h4 class="text-xl font-semibold text-slate-900 break-all">${escapeHtml(job.name)}</h4>
+                            <p class="mt-2 text-sm text-slate-600 break-all">${escapeHtml(formatModelLabel(job.model_type))} · ${escapeHtml(job.dataset_path)}</p>
+                        </div>
+                        <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${getTrainingStatusClass(job.status)}">
+                            ${escapeHtml(getTrainingStatusLabel(job.status))}
+                        </span>
+                    </div>
+                    <div class="mt-4 rounded-2xl border ${job.status === 'failed' ? 'border-red-200 bg-red-50 text-red-700' : job.status === 'cancelled' ? 'border-amber-200 bg-amber-50 text-amber-700' : job.status === 'completed' ? 'border-green-200 bg-green-50 text-green-700' : 'border-blue-200 bg-blue-50 text-blue-700'} px-4 py-3 text-sm">
+                        ${escapeHtml(phaseMessage)}
+                    </div>
+                    <div class="mt-4">
+                        ${preprocessingMarkup || ''}
+                        <div>
+                            <div class="flex items-center justify-between text-sm text-slate-600">
+                                <span>整体进度</span>
+                                <span class="font-semibold text-slate-900">${progress.toFixed(1)}%</span>
+                            </div>
+                            <div class="mt-2 h-3 w-full rounded-full bg-slate-200">
+                                <div class="h-3 rounded-full bg-primary-600 transition-all duration-300" style="width: ${Math.max(0, Math.min(100, progress))}%"></div>
+                            </div>
+                            <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                                <span>${escapeHtml(getTrainingEpochHint(job, progress, currentEpoch, totalEpochs))}</span>
+                                <span>设备: ${escapeHtml(trainingDevice)}</span>
+                                <span>已训练: ${escapeHtml(String(job.results?.epochs_trained ?? metricsResponse?.completed_epochs ?? 0))} 轮</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                    <p class="text-[11px] uppercase tracking-[0.22em] text-slate-400">Job Info</p>
+                    <div class="mt-4 space-y-3 text-sm text-slate-600">
+                        <div class="flex justify-between gap-4"><span>创建时间</span><span class="text-right text-slate-900">${escapeHtml(formatDateTime(job.created_at))}</span></div>
+                        <div class="flex justify-between gap-4"><span>开始时间</span><span class="text-right text-slate-900">${escapeHtml(formatDateTime(job.started_at || job.created_at))}</span></div>
+                        <div class="flex justify-between gap-4"><span>结束时间</span><span class="text-right text-slate-900">${escapeHtml(formatDateTime(job.completed_at))}</span></div>
+                        <div class="flex justify-between gap-4"><span>学习率</span><span class="text-right text-slate-900">${escapeHtml(String(job.parameters?.learning_rate ?? '-'))}</span></div>
+                        <div class="flex justify-between gap-4"><span>批次大小</span><span class="text-right text-slate-900">${escapeHtml(String(job.parameters?.batch_size ?? '-'))}</span></div>
+                        <div class="flex justify-between gap-4"><span>模型文件</span><span class="text-right text-slate-900 break-all">${escapeHtml(job.results?.model_path || '未生成')}</span></div>
+                    </div>
+                    ${job.description ? `<div class="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">${escapeHtml(job.description)}</div>` : ''}
+                    ${job.error_message ? `<div class="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 break-all">${escapeHtml(job.error_message)}</div>` : ''}
+                </div>
+            </div>
+
+            <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新训练准确率</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestTrainAccuracy}</p><p class="mt-1 text-xs text-slate-400">基于最近一个 epoch</p></div>
+                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新验证准确率</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestValAccuracy}</p><p class="mt-1 text-xs text-slate-400">任务顶部显示同样以验证指标为主</p></div>
+                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新训练损失</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestTrainLoss}</p><p class="mt-1 text-xs text-slate-400">训练集 loss</p></div>
+                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新验证损失</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestValLoss}</p><p class="mt-1 text-xs text-slate-400">当前任务摘要 ${validationAccuracy} / ${validationLoss}</p></div>
+            </div>
+
+            <div class="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
+                <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <h5 class="text-lg font-semibold text-slate-900">训练曲线</h5>
+                            <p class="mt-1 text-sm text-slate-500">展示每个 epoch 的训练 / 验证准确率与损失。</p>
+                        </div>
+                        <button type="button" onclick="downloadTrainingEpochChartSvg(${job.id})" class="inline-flex items-center rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 ${chartDownloadDisabled ? 'cursor-not-allowed opacity-50' : ''}" ${chartDownloadDisabled ? 'disabled' : ''}>
+                            <i class="fas fa-download mr-2"></i>下载 SVG
+                        </button>
+                    </div>
+                    <div class="mt-5 h-80">
+                        <canvas id="trainingEpochChartCanvas"></canvas>
+                    </div>
+                    ${metricsResponse?.available ? '' : '<p class="mt-4 text-sm text-slate-500">当前还没有可展示的 epoch 历史，训练开始并进入 epoch 后会自动出现。</p>'}
+                </div>
+
+                <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                    <h5 class="text-lg font-semibold text-slate-900">关键节点</h5>
+                    <div class="mt-4 space-y-4 text-sm text-slate-600">
+                        <div class="rounded-2xl bg-slate-50 p-4">
+                            <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Latest</p>
+                            <p class="mt-2 text-slate-900">最近记录 epoch: ${escapeHtml(String(latestMetric?.epoch ?? metricsResponse?.completed_epochs ?? '-'))}</p>
+                            <p class="mt-1">验证准确率: <span class="font-semibold text-slate-900">${latestValAccuracy}</span></p>
+                            <p class="mt-1">验证损失: <span class="font-semibold text-slate-900">${latestValLoss}</span></p>
+                        </div>
+                        <div class="rounded-2xl bg-slate-50 p-4">
+                            <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Best Validation</p>
+                            <p class="mt-2 text-slate-900">最佳 epoch: ${escapeHtml(String(bestMetric?.epoch ?? job.results?.best_epoch ?? '-'))}</p>
+                            <p class="mt-1">最佳验证准确率: <span class="font-semibold text-slate-900">${bestValAccuracy}</span></p>
+                            <p class="mt-1">对应验证损失: <span class="font-semibold text-slate-900">${bestValLoss}</span></p>
+                        </div>
+                        <div class="rounded-2xl bg-slate-50 p-4">
+                            <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Retention</p>
+                            <p class="mt-2">训练完成后模型是否保留仍由人工决定；检测时会真实复用已保留模型。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <h5 class="text-lg font-semibold text-slate-900">Epoch 历史</h5>
+                        <p class="mt-1 text-sm text-slate-500">逐轮查看 train / val 指标与学习率。</p>
+                    </div>
+                    <span class="text-sm text-slate-500">已记录 ${escapeHtml(String(metricsResponse?.completed_epochs ?? 0))} / ${escapeHtml(String(metricsResponse?.total_epochs ?? totalEpochs))} 轮</span>
+                </div>
+                <div class="mt-4 overflow-x-auto">
+                    ${renderTrainingEpochMetricsTable(metricsResponse)}
+                </div>
+            </div>
+        </div>
+    `;
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.classList.add('overflow-hidden');
+    renderTrainingEpochChart(metricsResponse);
+}
+
+function renderTrainingEpochMetricsTable(metricsResponse) {
+    const metrics = metricsResponse?.metrics || [];
+    if (!metrics.length) {
+        return '<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">暂无 epoch 历史数据</div>';
+    }
+
+    const rows = metrics.map(point => `
+        <tr class="border-b border-slate-100 last:border-b-0">
+            <td class="px-4 py-3 text-slate-900">${point.epoch}</td>
+            <td class="px-4 py-3 text-slate-600">${formatAccuracy(point.train_accuracy)}</td>
+            <td class="px-4 py-3 text-slate-600">${formatAccuracy(point.val_accuracy)}</td>
+            <td class="px-4 py-3 text-slate-600">${formatLoss(point.train_loss)}</td>
+            <td class="px-4 py-3 text-slate-600">${formatLoss(point.val_loss)}</td>
+            <td class="px-4 py-3 text-slate-600">${point.learning_rate !== null && point.learning_rate !== undefined ? escapeHtml(String(point.learning_rate)) : '-'}</td>
+            <td class="px-4 py-3 text-slate-500">${escapeHtml(formatDateTime(point.recorded_at))}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <table class="min-w-full text-sm">
+            <thead>
+                <tr class="border-b border-slate-200 text-left text-xs uppercase tracking-[0.16em] text-slate-400">
+                    <th class="px-4 py-3 font-medium">Epoch</th>
+                    <th class="px-4 py-3 font-medium">Train Acc</th>
+                    <th class="px-4 py-3 font-medium">Val Acc</th>
+                    <th class="px-4 py-3 font-medium">Train Loss</th>
+                    <th class="px-4 py-3 font-medium">Val Loss</th>
+                    <th class="px-4 py-3 font-medium">LR</th>
+                    <th class="px-4 py-3 font-medium">Recorded At</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+}
+
+function renderTrainingEpochChart(metricsResponse) {
+    const canvas = document.getElementById('trainingEpochChartCanvas');
+    if (!canvas) return;
+
+    if (trainingEpochChart) {
+        trainingEpochChart.destroy();
+        trainingEpochChart = null;
+    }
+
+    const metrics = metricsResponse?.metrics || [];
+    if (!metrics.length) {
+        return;
+    }
+
+    const labels = metrics.map(point => `Epoch ${point.epoch}`);
+    trainingEpochChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: '训练准确率',
+                    data: metrics.map(point => point.train_accuracy !== null && point.train_accuracy !== undefined ? point.train_accuracy * 100 : null),
+                    borderColor: 'rgb(59, 130, 246)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.16)',
+                    yAxisID: 'yAccuracy',
+                    tension: 0.3,
+                    spanGaps: true
+                },
+                {
+                    label: '验证准确率',
+                    data: metrics.map(point => point.val_accuracy !== null && point.val_accuracy !== undefined ? point.val_accuracy * 100 : null),
+                    borderColor: 'rgb(14, 165, 233)',
+                    backgroundColor: 'rgba(14, 165, 233, 0.16)',
+                    borderDash: [6, 4],
+                    yAxisID: 'yAccuracy',
+                    tension: 0.3,
+                    spanGaps: true
+                },
+                {
+                    label: '训练损失',
+                    data: metrics.map(point => point.train_loss ?? null),
+                    borderColor: 'rgb(248, 113, 113)',
+                    backgroundColor: 'rgba(248, 113, 113, 0.16)',
+                    yAxisID: 'yLoss',
+                    tension: 0.3,
+                    spanGaps: true
+                },
+                {
+                    label: '验证损失',
+                    data: metrics.map(point => point.val_loss ?? null),
+                    borderColor: 'rgb(245, 158, 11)',
+                    backgroundColor: 'rgba(245, 158, 11, 0.16)',
+                    borderDash: [6, 4],
+                    yAxisID: 'yLoss',
+                    tension: 0.3,
+                    spanGaps: true
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: 'top'
+                }
+            },
+            scales: {
+                yAccuracy: {
+                    type: 'linear',
+                    position: 'left',
+                    min: 0,
+                    max: 100,
+                    ticks: {
+                        callback: value => `${value}%`
+                    },
+                    title: {
+                        display: true,
+                        text: '准确率'
+                    },
+                    grid: {
+                        color: 'rgba(148, 163, 184, 0.12)'
+                    }
+                },
+                yLoss: {
+                    type: 'linear',
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: '损失'
+                    },
+                    grid: {
+                        drawOnChartArea: false
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    }
+                }
+            }
+        }
+    });
+}
+
+async function downloadTrainingEpochChartSvg(jobId) {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/training/jobs/${jobId}/epoch-metrics/chart`, {
+            responseType: 'blob'
+        });
+        const blob = new Blob([response.data], { type: 'image/svg+xml;charset=utf-8' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `training_job_${jobId}_epoch_metrics.svg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        showNotification('训练曲线 SVG 已下载', 'success');
+    } catch (error) {
+        showNotification('下载训练曲线失败：' + getApiErrorMessage(error), 'error');
     }
 }
 
@@ -2097,6 +2656,9 @@ function showNotification(message, type = 'info') {
 window.addEventListener('resize', function() {
     if (window.innerWidth < 768 && trendChart) {
         trendChart.resize();
+    }
+    if (window.innerWidth < 768 && trainingEpochChart) {
+        trainingEpochChart.resize();
     }
 });
 
