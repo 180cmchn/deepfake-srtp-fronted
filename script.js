@@ -266,6 +266,7 @@ async function runDetectionRequest(files, selectedModel) {
             const formData = new FormData();
             formData.append('file', file);
             appendDetectionModelSelection(formData, selectedModel);
+            appendDetectionRequestOptions(formData);
 
             const response = await axios.post(`${API_BASE_URL}/detection/detect`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
@@ -277,6 +278,7 @@ async function runDetectionRequest(files, selectedModel) {
         const formData = new FormData();
         formData.append('file', file);
         appendDetectionModelSelection(formData, selectedModel);
+        appendDetectionRequestOptions(formData);
 
         const response = await axios.post(`${API_BASE_URL}/detection/detect`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
@@ -290,6 +292,7 @@ async function runDetectionRequest(files, selectedModel) {
         formData.append('files', file);
     });
     appendDetectionModelSelection(formData, selectedModel);
+    appendDetectionRequestOptions(formData);
 
     const response = await axios.post(`${API_BASE_URL}/detection/detect/batch`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -328,6 +331,7 @@ function normalizeDetectionResult(response, file, selectedModel, index = 0) {
         processingTime: result.processing_time?.toFixed(2) || response.processing_time?.toFixed(2),
         rawConfidence: result.confidence,
         probabilities: result.probabilities || null,
+        decisionMetrics: result.decision_metrics || null,
         processingTimeSeconds: result.processing_time || response.processing_time || null,
         createdAt: response?.created_at || null,
         type: response?.file_info?.type || (isVideoFile(fileName) ? 'video' : 'image'),
@@ -354,6 +358,18 @@ function displayResults(results) {
         const confidenceValue = isSuccess ? `${result.confidence}%` : '-';
         const confidenceWidth = isSuccess ? `${result.confidence}%` : '0%';
         const isVideo = isVideoFile(result.filename);
+        const decisionSummary = isSuccess && result.decisionMetrics ? `
+            <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+                <div class="rounded bg-white px-3 py-2 border border-gray-200">
+                    <p class="text-gray-500">Fake 概率</p>
+                    <p class="mt-1 font-semibold text-gray-900">${escapeHtml(formatPercentFromProbability(result.decisionMetrics.fake_probability))}</p>
+                </div>
+                <div class="rounded bg-white px-3 py-2 border border-gray-200">
+                    <p class="text-gray-500">阈值</p>
+                    <p class="mt-1 font-semibold text-gray-900">${escapeHtml(formatPercentFromProbability(result.decisionMetrics.confidence_threshold))}</p>
+                </div>
+            </div>
+        ` : '';
 
         return `
         <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
@@ -379,6 +395,7 @@ function displayResults(results) {
                          style="width: ${confidenceWidth}"></div>
                 </div>
             </div>
+            ${decisionSummary}
             <div class="mt-3 flex gap-2">
                 <button class="text-sm text-primary-600 hover:text-primary-800 font-medium" onclick="viewDetectionResultDetail(${index})">
                     <i class="fas fa-eye mr-1"></i> 查看详情
@@ -496,6 +513,7 @@ function buildReportDataFromCurrentResult(record) {
         duration: record.duration ?? '-',
         errorMessage: record.errorMessage || '',
         probabilities: record.probabilities || null,
+        decisionMetrics: record.decisionMetrics || null,
         generatedAt: new Date().toLocaleString('zh-CN'),
     };
 }
@@ -519,6 +537,7 @@ function buildReportDataFromHistoryRecord(record) {
         duration: '-',
         errorMessage: '',
         probabilities: null,
+        decisionMetrics: null,
         generatedAt: new Date().toLocaleString('zh-CN'),
     };
 }
@@ -545,6 +564,7 @@ function renderDetectionReportHtml(report) {
             </tr>
         `).join('')
         : '<tr><td colspan="2">未返回类别概率</td></tr>';
+    const decisionMetricRows = renderDecisionMetricTableRows(report.decisionMetrics);
 
     return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -617,6 +637,13 @@ function renderDetectionReportHtml(report) {
       <table>
         <thead><tr><th>类别</th><th>概率</th></tr></thead>
         <tbody>${probabilityRows}</tbody>
+      </table>
+    </div>
+    <div class="section">
+      <h2>判定辅助指标</h2>
+      <table>
+        <thead><tr><th>指标</th><th>数值</th></tr></thead>
+        <tbody>${decisionMetricRows}</tbody>
       </table>
     </div>
     ${report.errorMessage ? `<div class="section"><div class="error"><strong>错误信息：</strong>${escapeHtml(report.errorMessage)}</div></div>` : ''}
@@ -698,6 +725,11 @@ function viewDetectionResultDetail(index) {
                     <label class="block text-sm font-medium text-gray-700 mb-1">置信度</label>
                     <p class="text-sm text-gray-900">${record.result === 'error' ? '-' : `${record.confidence}%`}</p>
                 </div>
+                ${record.result !== 'error' && record.decisionMetrics ? `
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">判定辅助指标</label>
+                    ${renderDecisionMetricGrid(record.decisionMetrics)}
+                </div>` : ''}
                 ${record.type === 'video' ? `
                 <div class="grid grid-cols-3 gap-4">
                     <div>
@@ -756,6 +788,11 @@ Deepfake 检测报告
 检测结果:
     - 判定结果: ${record.result === 'real' ? '真实' : record.result === 'fake' ? '伪造' : '失败'}
     - 置信度: ${record.result === 'error' ? '-' : `${record.confidence}%`}
+    - Fake 概率: ${escapeHtml(formatPercentFromProbability(record.decisionMetrics?.fake_probability))}
+    - Real 概率: ${escapeHtml(formatPercentFromProbability(record.decisionMetrics?.real_probability))}
+    - 判定阈值: ${escapeHtml(formatPercentFromProbability(record.decisionMetrics?.confidence_threshold))}
+    - 阈值差值: ${escapeHtml(formatSignedPercentFromProbability(record.decisionMetrics?.threshold_gap))}
+    - 决策边际: ${escapeHtml(formatSignedPercentFromProbability(record.decisionMetrics?.decision_margin))}
     - 处理时间: ${record.processingTime || '-'} 秒
     ${record.type === 'video' ? `- 总帧数: ${record.totalFrames ?? '-'}\n    - 处理帧数: ${record.processedFrames ?? '-'}\n    - 时长: ${record.duration ?? '-'} 秒` : ''}
     ${record.errorMessage ? `- 错误信息: ${record.errorMessage}` : ''}
@@ -2314,6 +2351,73 @@ function appendDetectionModelSelection(formData, selectedModel) {
     } else if (selectedModel.modelType) {
         formData.append('model_type', selectedModel.modelType);
     }
+}
+
+function getDetectionConfidenceThreshold() {
+    const input = document.getElementById('confidenceThreshold');
+    const parsed = Number.parseFloat(input?.value ?? '0.5');
+    if (!Number.isFinite(parsed)) return 0.5;
+    return Math.max(0, Math.min(1, parsed));
+}
+
+function appendDetectionRequestOptions(formData) {
+    formData.append('confidence_threshold', String(getDetectionConfidenceThreshold()));
+    formData.append('return_probabilities', 'true');
+}
+
+function formatPercentFromProbability(value) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
+    return `${(Number(value) * 100).toFixed(1)}%`;
+}
+
+function formatSignedPercentFromProbability(value) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return '-';
+    const percentValue = Number(value) * 100;
+    return `${percentValue >= 0 ? '+' : ''}${percentValue.toFixed(1)}%`;
+}
+
+function buildDecisionMetricItems(decisionMetrics) {
+    if (!decisionMetrics) return [];
+
+    return [
+        { label: 'Fake 概率', value: formatPercentFromProbability(decisionMetrics.fake_probability) },
+        { label: 'Real 概率', value: formatPercentFromProbability(decisionMetrics.real_probability) },
+        { label: '判定阈值', value: formatPercentFromProbability(decisionMetrics.confidence_threshold) },
+        { label: '阈值差值', value: formatSignedPercentFromProbability(decisionMetrics.threshold_gap) },
+        { label: '决策边际', value: formatSignedPercentFromProbability(decisionMetrics.decision_margin) },
+        { label: '预测类概率', value: formatPercentFromProbability(decisionMetrics.predicted_probability) }
+    ];
+}
+
+function renderDecisionMetricGrid(decisionMetrics, columns = 'grid-cols-2 md:grid-cols-3') {
+    const items = buildDecisionMetricItems(decisionMetrics);
+    if (!items.length) {
+        return '';
+    }
+
+    return `
+        <div class="grid ${columns} gap-3">
+            ${items.map(item => `
+                <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+                    <p class="text-xs text-gray-500">${escapeHtml(item.label)}</p>
+                    <p class="mt-1 text-sm font-semibold text-gray-900">${escapeHtml(item.value)}</p>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function renderDecisionMetricTableRows(decisionMetrics) {
+    const items = buildDecisionMetricItems(decisionMetrics);
+    if (!items.length) {
+        return '<tr><td colspan="2">未返回判定辅助指标</td></tr>';
+    }
+    return items.map(item => `
+        <tr>
+            <td>${escapeHtml(item.label)}</td>
+            <td>${escapeHtml(item.value)}</td>
+        </tr>
+    `).join('');
 }
 
 function canUseModelForFiles(selectedModel, files) {
