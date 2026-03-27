@@ -313,7 +313,8 @@ async function runDetectionRequest(files, selectedModel) {
 function normalizeDetectionResult(response, file, selectedModel, index = 0) {
     const fileName = file?.name || response?.file_info?.name || 'Unknown';
     const result = response?.result;
-    const modelLabel = result?.model_info?.model_name || selectedModel.label || '-';
+    const modelInfo = result?.model_info || null;
+    const modelLabel = formatDetectionResultModelLabel(modelInfo, selectedModel);
     const recordId = response?.record_id || response?.file_info?.record_id || null;
 
     if (!response?.success || !result) {
@@ -346,9 +347,20 @@ function normalizeDetectionResult(response, file, selectedModel, index = 0) {
         totalFrames: response?.file_info?.total_frames || null,
         processedFrames: response?.file_info?.processed_frames || null,
         duration: response?.file_info?.duration || null,
-        modelInfo: result.model_info || null,
-        errorMessage: response?.error_message || null,
-    };
+            modelInfo: modelInfo,
+            errorMessage: response?.error_message || null,
+        };
+}
+
+function formatDetectionResultModelLabel(modelInfo, selectedModel) {
+    if (modelInfo?.model_name) {
+        if (modelInfo.model_id) {
+            const modelTypeLabel = modelInfo.model_type ? formatModelLabel(modelInfo.model_type) : null;
+            return modelTypeLabel ? `${modelInfo.model_name} (${modelTypeLabel})` : modelInfo.model_name;
+        }
+        return modelInfo.model_type ? formatModelLabel(modelInfo.model_type) : modelInfo.model_name;
+    }
+    return selectedModel?.label || '-';
 }
 
 function displayResults(results) {
@@ -716,7 +728,7 @@ function viewDetectionResultDetail(index) {
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">使用模型</label>
-                        <p class="text-sm text-gray-900">${escapeHtml(record.model)}</p>
+                        <p class="text-sm text-gray-900">${escapeHtml(formatDetectionResultDetailModel(record))}</p>
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
@@ -775,6 +787,21 @@ function viewDetectionResultDetail(index) {
             modal.remove();
         }
     });
+}
+
+function formatDetectionResultDetailModel(record) {
+    const modelInfo = record?.modelInfo;
+    if (modelInfo?.model_name) {
+        const metaBits = [];
+        if (modelInfo.model_type) {
+            metaBits.push(formatModelLabel(modelInfo.model_type));
+        }
+        if (modelInfo.model_id) {
+            metaBits.push(`ID ${modelInfo.model_id}`);
+        }
+        return metaBits.length ? `${modelInfo.model_name} · ${metaBits.join(' · ')}` : modelInfo.model_name;
+    }
+    return record?.model || '-';
 }
 
 function downloadDetectionResultReport(index) {
