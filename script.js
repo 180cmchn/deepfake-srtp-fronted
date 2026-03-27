@@ -6,6 +6,14 @@ let trainingEpochChart = null;
 let trainingDetailModal = null;
 let trainingDetailJobId = null;
 let modelDetailModal = null;
+let trainingChartMetricVisibility = {
+    trainAccuracy: true,
+    videoValAccuracy: true,
+    sampleValAccuracy: false,
+    trainLoss: true,
+    videoValLoss: true,
+    sampleValLoss: false
+};
 let detectionHistoryCache = [];
 let detectionResultCache = [];
 let detectionModelCache = [];
@@ -1746,6 +1754,9 @@ async function loadTrainingJobs(options = {}) {
             const epochHint = getTrainingEpochHint(job, progress, currentEpoch, totalEpochs ?? epochs);
             const preprocessingMarkup = buildTrainingPreprocessingMarkup(job);
             const bestEpoch = job.results?.best_epoch;
+            const sampleValidationAccuracy = formatAccuracy(job.results?.val_sample_accuracy);
+            const sampleValidationLoss = formatLoss(job.results?.val_sample_loss);
+            const validationVideoCount = job.results?.val_video_count ?? '-';
 
             return `
             <div class="border border-gray-200 rounded-xl p-4 hover:border-primary-300 transition-colors shadow-sm">
@@ -1789,24 +1800,34 @@ async function loadTrainingJobs(options = {}) {
                     </div>
                 ` : ''}
                 
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+                <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2 mb-3">
                     <div class="text-center p-2 bg-gray-50 rounded">
                         <p class="text-sm font-semibold text-gray-900">${validationAccuracy}</p>
-                        <p class="text-xs text-gray-500">验证准确率</p>
+                        <p class="text-xs text-gray-500">视频级验证准确率</p>
                     </div>
                     <div class="text-center p-2 bg-gray-50 rounded">
                         <p class="text-sm font-semibold text-gray-900">${validationLoss}</p>
-                        <p class="text-xs text-gray-500">验证损失</p>
+                        <p class="text-xs text-gray-500">视频级验证损失</p>
                     </div>
                     <div class="text-center p-2 bg-gray-50 rounded">
-                        <p class="text-sm font-semibold text-gray-900">${epochs}</p>
-                        <p class="text-xs text-gray-500">总轮数</p>
+                        <p class="text-sm font-semibold text-gray-900">${sampleValidationAccuracy}</p>
+                        <p class="text-xs text-gray-500">样本级验证准确率</p>
+                    </div>
+                    <div class="text-center p-2 bg-gray-50 rounded">
+                        <p class="text-sm font-semibold text-gray-900">${validationVideoCount}</p>
+                        <p class="text-xs text-gray-500">验证视频数</p>
                     </div>
                     <div class="text-center p-2 bg-gray-50 rounded">
                         <p class="text-sm font-semibold text-gray-900">${bestEpoch ?? '-'}</p>
                         <p class="text-xs text-gray-500">最佳轮次</p>
                     </div>
+                    <div class="text-center p-2 bg-gray-50 rounded">
+                        <p class="text-sm font-semibold text-gray-900">${epochs}</p>
+                        <p class="text-xs text-gray-500">总轮数</p>
+                    </div>
                 </div>
+
+                <p class="text-[11px] text-gray-400 mb-3">主卡片优先展示视频级验证结果；样本级验证结果用于辅助排查 clip/frame 表现。</p>
 
                 <p class="text-xs text-gray-500 mb-3">模型文件: ${modelFileStatus}（由人工决定是否保留）</p>
                 
@@ -1992,12 +2013,19 @@ function renderTrainingDetailModal(job, metricsResponse) {
     const trainingDevice = (job.parameters?.training_device || 'auto').toUpperCase();
     const validationAccuracy = formatAccuracy(job.results?.val_accuracy ?? job.results?.accuracy);
     const validationLoss = formatLoss(job.results?.val_loss ?? job.results?.loss);
+    const sampleValidationAccuracy = formatAccuracy(job.results?.val_sample_accuracy ?? latestMetric?.val_sample_accuracy);
+    const sampleValidationLoss = formatLoss(job.results?.val_sample_loss ?? latestMetric?.val_sample_loss);
+    const validationVideoCount = job.results?.val_video_count ?? latestMetric?.val_video_count ?? '-';
     const latestTrainAccuracy = formatAccuracy(latestMetric?.train_accuracy);
     const latestTrainLoss = formatLoss(latestMetric?.train_loss);
     const latestValAccuracy = formatAccuracy(latestMetric?.val_accuracy ?? job.results?.val_accuracy ?? job.results?.accuracy);
     const latestValLoss = formatLoss(latestMetric?.val_loss ?? job.results?.val_loss ?? job.results?.loss);
+    const latestSampleValAccuracy = formatAccuracy(latestMetric?.val_sample_accuracy ?? job.results?.val_sample_accuracy);
+    const latestSampleValLoss = formatLoss(latestMetric?.val_sample_loss ?? job.results?.val_sample_loss);
     const bestValAccuracy = formatAccuracy(bestMetric?.val_accuracy ?? job.results?.val_accuracy ?? job.results?.accuracy);
     const bestValLoss = formatLoss(bestMetric?.val_loss ?? job.results?.val_loss ?? job.results?.loss);
+    const bestSampleValAccuracy = formatAccuracy(bestMetric?.val_sample_accuracy);
+    const bestSampleValLoss = formatLoss(bestMetric?.val_sample_loss);
     const preprocessingMarkup = buildTrainingPreprocessingMarkup(job);
     const chartDownloadDisabled = !metricsResponse?.available;
 
@@ -2052,9 +2080,16 @@ function renderTrainingDetailModal(job, metricsResponse) {
 
             <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新训练准确率</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestTrainAccuracy}</p><p class="mt-1 text-xs text-slate-400">基于最近一个 epoch</p></div>
-                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新验证准确率</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestValAccuracy}</p><p class="mt-1 text-xs text-slate-400">任务顶部显示同样以验证指标为主</p></div>
+                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新视频级验证准确率</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestValAccuracy}</p><p class="mt-1 text-xs text-slate-400">任务顶部摘要以视频级验证为主</p></div>
                 <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新训练损失</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestTrainLoss}</p><p class="mt-1 text-xs text-slate-400">训练集 loss</p></div>
-                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新验证损失</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestValLoss}</p><p class="mt-1 text-xs text-slate-400">当前任务摘要 ${validationAccuracy} / ${validationLoss}</p></div>
+                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新视频级验证损失</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestValLoss}</p><p class="mt-1 text-xs text-slate-400">当前任务摘要 ${validationAccuracy} / ${validationLoss}</p></div>
+            </div>
+
+            <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新样本级验证准确率</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestSampleValAccuracy}</p><p class="mt-1 text-xs text-slate-400">clip / frame 聚合前指标</p></div>
+                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">最新样本级验证损失</p><p class="mt-2 text-2xl font-semibold text-slate-900">${latestSampleValLoss}</p><p class="mt-1 text-xs text-slate-400">用于辅助判断聚合前表现</p></div>
+                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">验证视频数</p><p class="mt-2 text-2xl font-semibold text-slate-900">${escapeHtml(String(validationVideoCount))}</p><p class="mt-1 text-xs text-slate-400">按 source_id 聚合后统计</p></div>
+                <div class="rounded-2xl border border-slate-200 bg-white p-4"><p class="text-xs text-slate-500">当前视频/样本差异</p><p class="mt-2 text-2xl font-semibold text-slate-900">${validationAccuracy}</p><p class="mt-1 text-xs text-slate-400">视频级 ${validationLoss} · 样本级 ${sampleValidationLoss}</p></div>
             </div>
 
             <div class="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
@@ -2062,11 +2097,26 @@ function renderTrainingDetailModal(job, metricsResponse) {
                     <div class="flex flex-wrap items-center justify-between gap-3">
                         <div>
                             <h5 class="text-lg font-semibold text-slate-900">训练曲线</h5>
-                            <p class="mt-1 text-sm text-slate-500">展示每个 epoch 的训练 / 验证准确率与损失。</p>
+                            <p class="mt-1 text-sm text-slate-500">曲线中的验证指标优先显示视频级聚合结果；表格中会额外保留样本级结果。</p>
                         </div>
                         <button type="button" onclick="downloadTrainingEpochChartSvg(${job.id})" class="inline-flex items-center rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 ${chartDownloadDisabled ? 'cursor-not-allowed opacity-50' : ''}" ${chartDownloadDisabled ? 'disabled' : ''}>
                             <i class="fas fa-download mr-2"></i>下载 SVG
                         </button>
+                    </div>
+                    <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <p class="text-sm font-semibold text-slate-900">图表筛选</p>
+                                <p class="mt-1 text-xs text-slate-500">可略去部分参数，只看你当前关心的变化趋势。</p>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" onclick="setTrainingChartPreset('video')" class="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-white">只看视频级验证</button>
+                                <button type="button" onclick="setTrainingChartPreset('sample')" class="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-white">只看样本级验证</button>
+                                <button type="button" onclick="setTrainingChartPreset('loss')" class="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-white">只看损失</button>
+                                <button type="button" onclick="setTrainingChartPreset('all')" class="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-white">显示全部</button>
+                            </div>
+                        </div>
+                        <div id="trainingChartMetricControls" class="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3"></div>
                     </div>
                     <div class="mt-5 h-80">
                         <canvas id="trainingEpochChartCanvas"></canvas>
@@ -2080,14 +2130,18 @@ function renderTrainingDetailModal(job, metricsResponse) {
                         <div class="rounded-2xl bg-slate-50 p-4">
                             <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Latest</p>
                             <p class="mt-2 text-slate-900">最近记录 epoch: ${escapeHtml(String(latestMetric?.epoch ?? metricsResponse?.completed_epochs ?? '-'))}</p>
-                            <p class="mt-1">验证准确率: <span class="font-semibold text-slate-900">${latestValAccuracy}</span></p>
-                            <p class="mt-1">验证损失: <span class="font-semibold text-slate-900">${latestValLoss}</span></p>
+                            <p class="mt-1">视频级验证准确率: <span class="font-semibold text-slate-900">${latestValAccuracy}</span></p>
+                            <p class="mt-1">视频级验证损失: <span class="font-semibold text-slate-900">${latestValLoss}</span></p>
+                            <p class="mt-1">样本级验证准确率: <span class="font-semibold text-slate-900">${latestSampleValAccuracy}</span></p>
+                            <p class="mt-1">样本级验证损失: <span class="font-semibold text-slate-900">${latestSampleValLoss}</span></p>
                         </div>
                         <div class="rounded-2xl bg-slate-50 p-4">
                             <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Best Validation</p>
                             <p class="mt-2 text-slate-900">最佳 epoch: ${escapeHtml(String(bestMetric?.epoch ?? job.results?.best_epoch ?? '-'))}</p>
-                            <p class="mt-1">最佳验证准确率: <span class="font-semibold text-slate-900">${bestValAccuracy}</span></p>
-                            <p class="mt-1">对应验证损失: <span class="font-semibold text-slate-900">${bestValLoss}</span></p>
+                            <p class="mt-1">最佳视频级验证准确率: <span class="font-semibold text-slate-900">${bestValAccuracy}</span></p>
+                            <p class="mt-1">对应视频级验证损失: <span class="font-semibold text-slate-900">${bestValLoss}</span></p>
+                            <p class="mt-1">对应样本级验证准确率: <span class="font-semibold text-slate-900">${bestSampleValAccuracy}</span></p>
+                            <p class="mt-1">对应样本级验证损失: <span class="font-semibold text-slate-900">${bestSampleValLoss}</span></p>
                         </div>
                         <div class="rounded-2xl bg-slate-50 p-4">
                             <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Retention</p>
@@ -2101,7 +2155,7 @@ function renderTrainingDetailModal(job, metricsResponse) {
                 <div class="flex items-center justify-between gap-3">
                     <div>
                         <h5 class="text-lg font-semibold text-slate-900">Epoch 历史</h5>
-                        <p class="mt-1 text-sm text-slate-500">逐轮查看 train / val 指标与学习率。</p>
+                        <p class="mt-1 text-sm text-slate-500">逐轮查看训练指标、视频级验证指标与样本级验证指标。</p>
                     </div>
                     <span class="text-sm text-slate-500">已记录 ${escapeHtml(String(metricsResponse?.completed_epochs ?? 0))} / ${escapeHtml(String(metricsResponse?.total_epochs ?? totalEpochs))} 轮</span>
                 </div>
@@ -2115,7 +2169,98 @@ function renderTrainingDetailModal(job, metricsResponse) {
     modal.classList.remove('hidden');
     modal.classList.add('flex');
     document.body.classList.add('overflow-hidden');
+    renderTrainingChartMetricControls();
     renderTrainingEpochChart(metricsResponse);
+}
+
+function getTrainingChartMetricDefinitions() {
+    return [
+        { key: 'trainAccuracy', label: '训练准确率', colorClass: 'bg-blue-500' },
+        { key: 'videoValAccuracy', label: '视频级验证准确率', colorClass: 'bg-sky-500' },
+        { key: 'sampleValAccuracy', label: '样本级验证准确率', colorClass: 'bg-cyan-500' },
+        { key: 'trainLoss', label: '训练损失', colorClass: 'bg-rose-400' },
+        { key: 'videoValLoss', label: '视频级验证损失', colorClass: 'bg-amber-500' },
+        { key: 'sampleValLoss', label: '样本级验证损失', colorClass: 'bg-orange-400' }
+    ];
+}
+
+function renderTrainingChartMetricControls() {
+    const container = document.getElementById('trainingChartMetricControls');
+    if (!container) return;
+
+    container.innerHTML = getTrainingChartMetricDefinitions().map(metric => {
+        const checked = trainingChartMetricVisibility[metric.key] !== false;
+        return `
+            <label class="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 transition-colors hover:border-primary-300 hover:bg-primary-50/30">
+                <span class="flex items-center gap-3">
+                    <span class="h-2.5 w-2.5 rounded-full ${metric.colorClass}"></span>
+                    <span>${escapeHtml(metric.label)}</span>
+                </span>
+                <input type="checkbox" class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500" ${checked ? 'checked' : ''} onchange="toggleTrainingChartMetric('${metric.key}')">
+            </label>
+        `;
+    }).join('');
+}
+
+function toggleTrainingChartMetric(metricKey) {
+    trainingChartMetricVisibility = {
+        ...trainingChartMetricVisibility,
+        [metricKey]: !trainingChartMetricVisibility[metricKey]
+    };
+    renderTrainingChartMetricControls();
+    updateTrainingEpochChartVisibility();
+}
+
+function setTrainingChartPreset(preset) {
+    if (preset === 'video') {
+        trainingChartMetricVisibility = {
+            trainAccuracy: true,
+            videoValAccuracy: true,
+            sampleValAccuracy: false,
+            trainLoss: true,
+            videoValLoss: true,
+            sampleValLoss: false
+        };
+    } else if (preset === 'sample') {
+        trainingChartMetricVisibility = {
+            trainAccuracy: false,
+            videoValAccuracy: false,
+            sampleValAccuracy: true,
+            trainLoss: false,
+            videoValLoss: false,
+            sampleValLoss: true
+        };
+    } else if (preset === 'loss') {
+        trainingChartMetricVisibility = {
+            trainAccuracy: false,
+            videoValAccuracy: false,
+            sampleValAccuracy: false,
+            trainLoss: true,
+            videoValLoss: true,
+            sampleValLoss: true
+        };
+    } else {
+        trainingChartMetricVisibility = {
+            trainAccuracy: true,
+            videoValAccuracy: true,
+            sampleValAccuracy: true,
+            trainLoss: true,
+            videoValLoss: true,
+            sampleValLoss: true
+        };
+    }
+
+    renderTrainingChartMetricControls();
+    updateTrainingEpochChartVisibility();
+}
+
+function updateTrainingEpochChartVisibility() {
+    if (!trainingEpochChart) return;
+
+    trainingEpochChart.data.datasets.forEach(dataset => {
+        dataset.hidden = trainingChartMetricVisibility[dataset.metricKey] === false;
+    });
+    trainingEpochChart.update();
 }
 
 function renderTrainingEpochMetricsTable(metricsResponse) {
@@ -2129,8 +2274,11 @@ function renderTrainingEpochMetricsTable(metricsResponse) {
             <td class="px-4 py-3 text-slate-900">${point.epoch}</td>
             <td class="px-4 py-3 text-slate-600">${formatAccuracy(point.train_accuracy)}</td>
             <td class="px-4 py-3 text-slate-600">${formatAccuracy(point.val_accuracy)}</td>
+            <td class="px-4 py-3 text-slate-600">${formatAccuracy(point.val_sample_accuracy)}</td>
             <td class="px-4 py-3 text-slate-600">${formatLoss(point.train_loss)}</td>
             <td class="px-4 py-3 text-slate-600">${formatLoss(point.val_loss)}</td>
+            <td class="px-4 py-3 text-slate-600">${formatLoss(point.val_sample_loss)}</td>
+            <td class="px-4 py-3 text-slate-600">${point.val_video_count ?? '-'}</td>
             <td class="px-4 py-3 text-slate-600">${point.learning_rate !== null && point.learning_rate !== undefined ? escapeHtml(String(point.learning_rate)) : '-'}</td>
             <td class="px-4 py-3 text-slate-500">${escapeHtml(formatDateTime(point.recorded_at))}</td>
         </tr>
@@ -2142,9 +2290,12 @@ function renderTrainingEpochMetricsTable(metricsResponse) {
                 <tr class="border-b border-slate-200 text-left text-xs uppercase tracking-[0.16em] text-slate-400">
                     <th class="px-4 py-3 font-medium">Epoch</th>
                     <th class="px-4 py-3 font-medium">Train Acc</th>
-                    <th class="px-4 py-3 font-medium">Val Acc</th>
+                    <th class="px-4 py-3 font-medium">Val Acc (Video)</th>
+                    <th class="px-4 py-3 font-medium">Val Acc (Sample)</th>
                     <th class="px-4 py-3 font-medium">Train Loss</th>
-                    <th class="px-4 py-3 font-medium">Val Loss</th>
+                    <th class="px-4 py-3 font-medium">Val Loss (Video)</th>
+                    <th class="px-4 py-3 font-medium">Val Loss (Sample)</th>
+                    <th class="px-4 py-3 font-medium">Val Videos</th>
                     <th class="px-4 py-3 font-medium">LR</th>
                     <th class="px-4 py-3 font-medium">Recorded At</th>
                 </tr>
@@ -2176,6 +2327,7 @@ function renderTrainingEpochChart(metricsResponse) {
             datasets: [
                 {
                     label: '训练准确率',
+                    metricKey: 'trainAccuracy',
                     data: metrics.map(point => point.train_accuracy !== null && point.train_accuracy !== undefined ? point.train_accuracy * 100 : null),
                     borderColor: 'rgb(59, 130, 246)',
                     backgroundColor: 'rgba(59, 130, 246, 0.16)',
@@ -2184,7 +2336,8 @@ function renderTrainingEpochChart(metricsResponse) {
                     spanGaps: true
                 },
                 {
-                    label: '验证准确率',
+                    label: '视频级验证准确率',
+                    metricKey: 'videoValAccuracy',
                     data: metrics.map(point => point.val_accuracy !== null && point.val_accuracy !== undefined ? point.val_accuracy * 100 : null),
                     borderColor: 'rgb(14, 165, 233)',
                     backgroundColor: 'rgba(14, 165, 233, 0.16)',
@@ -2194,7 +2347,19 @@ function renderTrainingEpochChart(metricsResponse) {
                     spanGaps: true
                 },
                 {
+                    label: '样本级验证准确率',
+                    metricKey: 'sampleValAccuracy',
+                    data: metrics.map(point => point.val_sample_accuracy !== null && point.val_sample_accuracy !== undefined ? point.val_sample_accuracy * 100 : null),
+                    borderColor: 'rgb(34, 211, 238)',
+                    backgroundColor: 'rgba(34, 211, 238, 0.16)',
+                    borderDash: [2, 5],
+                    yAxisID: 'yAccuracy',
+                    tension: 0.3,
+                    spanGaps: true
+                },
+                {
                     label: '训练损失',
+                    metricKey: 'trainLoss',
                     data: metrics.map(point => point.train_loss ?? null),
                     borderColor: 'rgb(248, 113, 113)',
                     backgroundColor: 'rgba(248, 113, 113, 0.16)',
@@ -2203,11 +2368,23 @@ function renderTrainingEpochChart(metricsResponse) {
                     spanGaps: true
                 },
                 {
-                    label: '验证损失',
+                    label: '视频级验证损失',
+                    metricKey: 'videoValLoss',
                     data: metrics.map(point => point.val_loss ?? null),
                     borderColor: 'rgb(245, 158, 11)',
                     backgroundColor: 'rgba(245, 158, 11, 0.16)',
                     borderDash: [6, 4],
+                    yAxisID: 'yLoss',
+                    tension: 0.3,
+                    spanGaps: true
+                },
+                {
+                    label: '样本级验证损失',
+                    metricKey: 'sampleValLoss',
+                    data: metrics.map(point => point.val_sample_loss ?? null),
+                    borderColor: 'rgb(251, 146, 60)',
+                    backgroundColor: 'rgba(251, 146, 60, 0.16)',
+                    borderDash: [2, 5],
                     yAxisID: 'yLoss',
                     tension: 0.3,
                     spanGaps: true
@@ -2262,6 +2439,8 @@ function renderTrainingEpochChart(metricsResponse) {
             }
         }
     });
+
+    updateTrainingEpochChartVisibility();
 }
 
 async function downloadTrainingEpochChartSvg(jobId) {
