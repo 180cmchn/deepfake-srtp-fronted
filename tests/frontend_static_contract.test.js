@@ -1,0 +1,474 @@
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const frontendRoot = path.resolve(__dirname, '..');
+const configSource = fs.readFileSync(path.join(frontendRoot, 'config.js'), 'utf8');
+const scriptSource = fs.readFileSync(path.join(frontendRoot, 'script.js'), 'utf8');
+
+function createElement() {
+    return {
+        innerHTML: '',
+        value: '',
+        disabled: false,
+        textContent: '',
+        classList: {
+            add() {},
+            remove() {},
+            toggle() {}
+        },
+        addEventListener() {},
+        appendChild() {},
+        click() {},
+        remove() {},
+        querySelector() {
+            return null;
+        },
+        querySelectorAll() {
+            return [];
+        }
+    };
+}
+
+function getOrCreateElement(elements, key) {
+    if (!elements.has(key)) {
+        elements.set(key, createElement());
+    }
+    return elements.get(key);
+}
+
+function loadFrontend({ location, appConfig } = {}) {
+    const elements = new Map();
+    const document = {
+        addEventListener() {},
+        getElementById(id) {
+            return getOrCreateElement(elements, id);
+        },
+        querySelector(selector) {
+            return getOrCreateElement(elements, selector);
+        },
+        querySelectorAll() {
+            return [];
+        },
+        createElement() {
+            return createElement();
+        },
+        body: {
+            classList: {
+                add() {},
+                remove() {}
+            },
+            appendChild(node) {
+                this.lastAppended = node;
+            },
+            removeChild() {}
+        }
+    };
+
+    const windowObject = {
+        location: location || { protocol: 'http:', hostname: 'localhost' },
+        __APP_CONFIG__: appConfig || {},
+        addEventListener() {},
+        innerWidth: 1440,
+        setInterval,
+        clearInterval,
+        URL: {
+            createObjectURL() {
+                return 'blob:mock';
+            },
+            revokeObjectURL() {}
+        },
+        confirm() {
+            return true;
+        }
+    };
+
+    const context = {
+        window: windowObject,
+        document,
+        console,
+        setTimeout,
+        clearTimeout,
+        Chart: function Chart() {},
+        axios: {
+            get: async () => ({ data: {} }),
+            post: async () => ({ data: {} })
+        },
+        FormData: class FormData {
+            constructor() {
+                this.values = [];
+            }
+
+            append(key, value) {
+                this.values.push([key, value]);
+            }
+        },
+        Blob: class Blob {},
+        URL: windowObject.URL,
+        navigator: {},
+        alert() {},
+        confirm() {
+            return true;
+        }
+    };
+
+    context.global = context;
+    context.globalThis = context;
+    vm.createContext(context);
+    vm.runInContext(configSource, context);
+    vm.runInContext(scriptSource, context);
+    return { context, elements };
+}
+
+async function testUploadAreaEscapesMaliciousFilename() {
+    const { context, elements } = loadFrontend();
+    const uploadContent = getOrCreateElement(elements, '.upload-content');
+
+    context.updateUploadArea([
+        {
+            name: '<img src=x onerror=alert(1)>.png',
+            type: 'image/png',
+            size: 1024
+        }
+    ]);
+
+    assert(uploadContent.innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;.png'));
+    assert(!uploadContent.innerHTML.includes('<img src=x onerror=alert(1)>.png'));
+}
+
+async function testLoadDetectionModelsRequiresExplicitSelectionWithoutReadyDefault() {
+    const { context, elements } = loadFrontend();
+    const modelSelect = elements.get('modelSelect') || createElement();
+    const modelFilter = elements.get('modelFilter') || createElement();
+    elements.set('modelSelect', modelSelect);
+    elements.set('modelFilter', modelFilter);
+
+    context.axios.get = async () => ({
+        data: {
+            models: [
+                {
+                    id: null,
+                    name: 'vit',
+                    label: '<b>builtin vit</b>',
+                    model_type: 'vit',
+                    source: 'builtin',
+                    is_default: false,
+                    is_ready: false,
+                    is_recommended: false,
+                    usable_for: ['image', 'video']
+                }
+            ],
+            default: {
+                model_id: null,
+                model_type: null,
+                source: null,
+                is_ready: false,
+                selection_policy: 'explicit_ready_model_required'
+            },
+            model_types: ['vit']
+        }
+    });
+
+    await context.loadDetectionModels();
+
+    assert(modelSelect.innerHTML.startsWith('<option value="" selected>请选择可用模型</option>'));
+    assert(modelSelect.innerHTML.includes('&lt;b&gt;builtin vit&lt;/b&gt;'));
+    assert.strictEqual(modelSelect.value, '');
+}
+
+async function testResolveApiBaseUrlHonorsExplicitAndComposedConfig() {
+    const explicit = loadFrontend({
+        location: { protocol: 'https:', hostname: 'frontend.example.com' },
+        appConfig: { API_BASE_URL: 'https://api.example.com/custom/' }
+    }).context;
+
+    assert.strictEqual(explicit.resolveApiBaseUrl(), 'https://api.example.com/custom');
+
+    const composed = loadFrontend({
+        location: { protocol: 'file:', hostname: '' },
+        appConfig: {
+            API_SCHEME: 'https:',
+            API_HOST: 'api.local',
+            API_PORT: '9443',
+            API_V1_STR: '',
+            API_V1_PREFIX: 'v2'
+        }
+    }).context;
+
+    assert.strictEqual(composed.resolveApiBaseUrl(), 'https://api.local:9443/v2');
+}
+
+async function testStructuredApiErrorMessageUsesMessageAndRecordId() {
+    const { context } = loadFrontend();
+
+    assert.strictEqual(
+        context.getApiErrorMessage({
+            response: {
+                data: {
+                    detail: {
+                        message: 'No usable model',
+                        record_id: 42
+                    }
+                }
+            }
+        }),
+        'No usable model（record_id: 42）'
+    );
+}
+
+async function testDisplayResultsEscapesFilenameAndModel() {
+    const { context, elements } = loadFrontend();
+    const resultsContainer = getOrCreateElement(elements, 'resultsContainer');
+
+    context.displayResults([
+        {
+            filename: '<svg/onload=alert(1)>.png',
+            model: '<b>bad-model</b>',
+            result: 'fake',
+            confidence: '98.0',
+            processingTime: '0.12',
+            decisionMetrics: null
+        }
+    ]);
+
+    assert(resultsContainer.innerHTML.includes('&lt;svg/onload=alert(1)&gt;.png'));
+    assert(resultsContainer.innerHTML.includes('&lt;b&gt;bad-model&lt;/b&gt;'));
+    assert(!resultsContainer.innerHTML.includes('<svg/onload=alert(1)>.png'));
+    assert(!resultsContainer.innerHTML.includes('<b>bad-model</b>'));
+}
+
+async function testLoadHistoryEscapesHistoryRows() {
+    const { context, elements } = loadFrontend();
+    getOrCreateElement(elements, 'historyTableBody');
+    getOrCreateElement(elements, 'historyFilter').value = '';
+    getOrCreateElement(elements, 'modelFilter').value = '';
+    getOrCreateElement(elements, 'historyFilterSummary');
+
+    context.axios.get = async () => ({
+        data: {
+            detections: [
+                {
+                    id: 5,
+                    created_at: '2026-03-30T12:00:00Z',
+                    file_name: '<img src=x onerror=alert(1)>.png',
+                    model_name: '<b>bad-model</b>',
+                    model_type: 'vit',
+                    file_type: 'image',
+                    prediction: 'fake',
+                    confidence: 0.91,
+                    status: 'completed'
+                }
+            ]
+        }
+    });
+
+    await context.loadHistory();
+
+    const tbody = elements.get('historyTableBody');
+    assert(tbody.innerHTML.includes('&lt;img src=x onerror=alert(1)&gt;.png'));
+    assert(tbody.innerHTML.includes('&lt;b&gt;bad-model&lt;/b&gt;'));
+    assert(!tbody.innerHTML.includes('<img src=x onerror=alert(1)>.png'));
+}
+
+async function testViewHistoryDetailEscapesAndShowsVideoMetadata() {
+    const { context, elements } = loadFrontend();
+    getOrCreateElement(elements, 'historyTableBody');
+    getOrCreateElement(elements, 'historyFilter').value = '';
+    getOrCreateElement(elements, 'modelFilter').value = '';
+    getOrCreateElement(elements, 'historyFilterSummary');
+
+    context.axios.get = async () => ({
+        data: {
+            detections: [
+                {
+                    id: 7,
+                    created_at: '2026-03-30T12:00:00Z',
+                    file_name: '<video>.mp4',
+                    model_name: 'No model loaded',
+                    model_type: null,
+                    file_type: 'video',
+                    prediction: null,
+                    confidence: null,
+                    status: 'failed',
+                    error_message: '<script>alert(1)</script>',
+                    source_total_frames: 300,
+                    source_fps: 30,
+                    source_duration_seconds: 10,
+                    sampled_frame_count: 24,
+                    analyzed_frame_count: 12,
+                    sampled_duration_seconds: 4
+                }
+            ]
+        }
+    });
+
+    await context.loadHistory();
+    context.viewHistoryDetail('7');
+
+    const modal = context.document.body.lastAppended;
+    assert(modal.innerHTML.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+    assert(modal.innerHTML.includes('源视频总帧数'));
+    assert(modal.innerHTML.includes('采样帧数'));
+    assert(!modal.innerHTML.includes('<script>alert(1)</script>'));
+}
+
+async function testRenderDetectionReportHtmlEscapesReportFields() {
+    const { context } = loadFrontend();
+    const html = context.renderDetectionReportHtml({
+        title: 'Deepfake 检测报告',
+        fileName: '<img>.png',
+        fileType: '图片',
+        detectedAt: '2026-03-30 12:00:00',
+        modelName: '<b>bad-model</b>',
+        predictionText: '伪造',
+        predictionClass: 'fake',
+        confidenceLabel: '预测结果置信度',
+        confidenceText: '91.0%',
+        confidenceValue: 0.91,
+        processingTimeText: '0.12 秒',
+        videoMetadataItems: [],
+        errorMessage: '<script>alert(1)</script>',
+        probabilities: { '<svg>': 0.91 },
+        decisionMetrics: null,
+        generatedAt: '2026-03-30 12:00:00'
+    });
+
+    assert(html.includes('&lt;img&gt;.png'));
+    assert(html.includes('&lt;b&gt;bad-model&lt;/b&gt;'));
+    assert(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+    assert(html.includes('&lt;svg&gt;'));
+    assert(!html.includes('<script>alert(1)</script>'));
+}
+
+async function testPerformDetectionFailureRefreshesHistoryAndStats() {
+    const { context, elements } = loadFrontend();
+    getOrCreateElement(elements, 'modelSelect').value = '';
+    getOrCreateElement(elements, 'resultsContainer');
+    getOrCreateElement(elements, 'resultsSection');
+    getOrCreateElement(elements, 'loadingOverlay');
+
+    let historyCalls = 0;
+    let statsCalls = 0;
+    let statisticsCalls = 0;
+    let notificationMessage = null;
+
+    context.loadHistory = async () => {
+        historyCalls += 1;
+    };
+    context.loadDetectionStats = async () => {
+        statsCalls += 1;
+    };
+    context.loadStatistics = async () => {
+        statisticsCalls += 1;
+    };
+    context.showNotification = (message) => {
+        notificationMessage = message;
+    };
+    context.runDetectionRequest = async () => {
+        throw {
+            response: {
+                data: {
+                    detail: {
+                        message: 'No usable model',
+                        record_id: 88
+                    }
+                }
+            }
+        };
+    };
+
+    vm.runInContext(
+        "uploadedFiles = [{ name: 'sample.png', type: 'image/png', size: 1024 }];",
+        context
+    );
+
+    await context.performDetection();
+
+    assert.strictEqual(historyCalls, 1);
+    assert.strictEqual(statsCalls, 1);
+    assert.strictEqual(statisticsCalls, 1);
+    assert.strictEqual(notificationMessage, '检测失败：No usable model（record_id: 88）');
+}
+
+async function testHistoryDetailDescriptionAvoidsUnsupportedAccuracyClaims() {
+    const { context, elements } = loadFrontend();
+    getOrCreateElement(elements, 'historyTableBody');
+    getOrCreateElement(elements, 'historyFilter').value = '';
+    getOrCreateElement(elements, 'modelFilter').value = '';
+    getOrCreateElement(elements, 'historyFilterSummary');
+
+    context.axios.get = async () => ({
+        data: {
+            detections: [
+                {
+                    id: 9,
+                    created_at: '2026-03-30T12:00:00Z',
+                    file_name: 'sample.png',
+                    model_name: 'registry-vit',
+                    model_type: 'vit',
+                    file_type: 'image',
+                    prediction: 'real',
+                    confidence: 0.82,
+                    status: 'completed',
+                    error_message: null
+                }
+            ]
+        }
+    });
+
+    await context.loadHistory();
+    context.viewHistoryDetail('9');
+
+    const modal = context.document.body.lastAppended;
+    assert(!modal.innerHTML.includes('多个公开数据集'));
+    assert(!modal.innerHTML.includes('较高的准确率'));
+    assert(modal.innerHTML.includes('当前登记信息'));
+}
+
+async function testPlainTextDetectionReportUsesSanitizedFilename() {
+    const { context, elements } = loadFrontend();
+    const anchor = createElement();
+    context.document.createElement = () => anchor;
+
+    vm.runInContext(
+        `detectionResultCache = [{
+            id: 1,
+            filename: '<bad name>.png',
+            model: 'registry-vit',
+            result: 'fake',
+            confidence: '91.0',
+            processingTime: '0.12',
+            createdAt: '2026-03-30T12:00:00Z',
+            decisionMetrics: null,
+            errorMessage: ''
+        }];`,
+        context
+    );
+
+    context.downloadDetectionResultReport(0);
+
+    assert(anchor.download.startsWith('deepfake_result_bad_name_'));
+    assert(!anchor.download.includes('<'));
+    assert(!anchor.download.includes(' '));
+}
+
+async function main() {
+    await testUploadAreaEscapesMaliciousFilename();
+    await testLoadDetectionModelsRequiresExplicitSelectionWithoutReadyDefault();
+    await testResolveApiBaseUrlHonorsExplicitAndComposedConfig();
+    await testStructuredApiErrorMessageUsesMessageAndRecordId();
+    await testDisplayResultsEscapesFilenameAndModel();
+    await testLoadHistoryEscapesHistoryRows();
+    await testViewHistoryDetailEscapesAndShowsVideoMetadata();
+    await testRenderDetectionReportHtmlEscapesReportFields();
+    await testPerformDetectionFailureRefreshesHistoryAndStats();
+    await testHistoryDetailDescriptionAvoidsUnsupportedAccuracyClaims();
+    await testPlainTextDetectionReportUsesSanitizedFilename();
+    console.log('frontend static contract tests passed');
+}
+
+main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+});

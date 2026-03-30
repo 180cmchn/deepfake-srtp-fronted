@@ -24,7 +24,26 @@ let selectedTrainingDatasetFiles = [];
 let selectedTrainingDatasetRelativePaths = [];
 let currentDatasetRegisterMode = 'path';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+function normalizeApiPrefix(value) {
+    if (typeof value !== 'string' || !value.trim()) return '/api/v1';
+    const trimmed = value.trim();
+    return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
+function resolveApiBaseUrl() {
+    const config = window.__APP_CONFIG__ || {};
+    if (typeof config.API_BASE_URL === 'string' && config.API_BASE_URL.trim()) {
+        return config.API_BASE_URL.replace(/\/+$/, '');
+    }
+
+    const scheme = config.API_SCHEME || (window.location.protocol === 'file:' ? 'http:' : window.location.protocol || 'http:');
+    const host = config.API_HOST || window.location.hostname || 'localhost';
+    const port = String(config.API_PORT || '8000').trim();
+    const prefix = normalizeApiPrefix(config.API_V1_STR || config.API_V1_PREFIX);
+    return `${scheme}//${host}:${port}${prefix}`;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 const TRAINING_JOBS_POLL_INTERVAL = 1000;
 
 // 页面配置
@@ -203,9 +222,9 @@ function updateUploadArea(files) {
         <div class="flex items-center justify-between p-2 bg-white rounded border border-gray-200 mb-2">
             <div class="flex items-center">
                 <i class="fas fa-file-${file.type.startsWith('image/') ? 'image' : 'video'} text-gray-400 mr-2"></i>
-                <span class="text-sm text-gray-700">${file.name}</span>
+                <span class="text-sm text-gray-700">${escapeHtml(file.name)}</span>
             </div>
-            <span class="text-xs text-gray-500">${(file.size / 1024 / 1024).toFixed(2)} MB</span>
+            <span class="text-xs text-gray-500">${escapeHtml((file.size / 1024 / 1024).toFixed(2))} MB</span>
         </div>
     `).join('');
     
@@ -257,6 +276,11 @@ async function performDetection() {
         loadDetectionStats();
     } catch (error) {
         showNotification('检测失败：' + getApiErrorMessage(error), 'error');
+        await Promise.allSettled([
+            loadHistory(),
+            loadDetectionStats(),
+            loadStatistics()
+        ]);
     } finally {
         showLoading(false);
     }
@@ -316,6 +340,7 @@ function normalizeDetectionResult(response, file, selectedModel, index = 0) {
     const modelInfo = result?.model_info || null;
     const modelLabel = formatDetectionResultModelLabel(modelInfo, selectedModel);
     const recordId = response?.record_id || response?.file_info?.record_id || null;
+    const videoMetadata = extractVideoMetadata(response?.file_info || null);
 
     if (!response?.success || !result) {
         return {
@@ -328,6 +353,15 @@ function normalizeDetectionResult(response, file, selectedModel, index = 0) {
             errorMessage: response?.error_message || '检测失败',
             createdAt: response?.created_at || null,
             type: response?.file_info?.type || (isVideoFile(fileName) ? 'video' : 'image'),
+            totalFrames: videoMetadata.sampledFrameCount,
+            processedFrames: videoMetadata.analyzedFrameCount,
+            duration: videoMetadata.sampledDurationSeconds,
+            sourceTotalFrames: videoMetadata.sourceTotalFrames,
+            sourceDurationSeconds: videoMetadata.sourceDurationSeconds,
+            sourceFps: videoMetadata.sourceFps,
+            sampledFrameCount: videoMetadata.sampledFrameCount,
+            analyzedFrameCount: videoMetadata.analyzedFrameCount,
+            sampledDurationSeconds: videoMetadata.sampledDurationSeconds,
         };
     }
 
@@ -344,12 +378,81 @@ function normalizeDetectionResult(response, file, selectedModel, index = 0) {
         processingTimeSeconds: result.processing_time || response.processing_time || null,
         createdAt: response?.created_at || null,
         type: response?.file_info?.type || (isVideoFile(fileName) ? 'video' : 'image'),
-        totalFrames: response?.file_info?.total_frames || null,
-        processedFrames: response?.file_info?.processed_frames || null,
-        duration: response?.file_info?.duration || null,
-            modelInfo: modelInfo,
-            errorMessage: response?.error_message || null,
-        };
+        totalFrames: videoMetadata.sampledFrameCount,
+        processedFrames: videoMetadata.analyzedFrameCount,
+        duration: videoMetadata.sampledDurationSeconds,
+        sourceTotalFrames: videoMetadata.sourceTotalFrames,
+        sourceDurationSeconds: videoMetadata.sourceDurationSeconds,
+        sourceFps: videoMetadata.sourceFps,
+        sampledFrameCount: videoMetadata.sampledFrameCount,
+        analyzedFrameCount: videoMetadata.analyzedFrameCount,
+        sampledDurationSeconds: videoMetadata.sampledDurationSeconds,
+        modelInfo: modelInfo,
+        errorMessage: response?.error_message || null,
+    };
+}
+
+function getPreferredMetadataValue(...values) {
+    for (const value of values) {
+        if (value === undefined || value === null || value === '') continue;
+        if (typeof value === 'number' && Number.isNaN(value)) continue;
+        return value;
+    }
+    return null;
+}
+
+function extractVideoMetadata(source) {
+    return {
+        sourceTotalFrames: getPreferredMetadataValue(source?.sourceTotalFrames, source?.source_total_frames),
+        sourceDurationSeconds: getPreferredMetadataValue(source?.sourceDurationSeconds, source?.source_duration_seconds),
+        sourceFps: getPreferredMetadataValue(source?.sourceFps, source?.source_fps),
+        sampledFrameCount: getPreferredMetadataValue(source?.sampledFrameCount, source?.sampled_frame_count, source?.totalFrames, source?.total_frames),
+        analyzedFrameCount: getPreferredMetadataValue(source?.analyzedFrameCount, source?.analyzed_frame_count, source?.processedFrames, source?.processed_frames),
+        sampledDurationSeconds: getPreferredMetadataValue(source?.sampledDurationSeconds, source?.sampled_duration_seconds, source?.duration, source?.duration_seconds),
+    };
+}
+
+function formatVideoMetadataValue(value, unit = '') {
+    const resolvedValue = getPreferredMetadataValue(value);
+    if (resolvedValue === null) {
+        return '-';
+    }
+
+    let formattedValue = String(resolvedValue);
+    if (typeof resolvedValue === 'number') {
+        const fractionDigits = unit === 'FPS' ? 3 : 2;
+        formattedValue = Number.isInteger(resolvedValue)
+            ? String(resolvedValue)
+            : resolvedValue.toFixed(fractionDigits).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
+    }
+
+    return unit ? `${formattedValue} ${unit}` : formattedValue;
+}
+
+function buildVideoMetadataItems(source) {
+    const metadata = extractVideoMetadata(source);
+    const items = [];
+
+    if (metadata.sourceTotalFrames !== null) {
+        items.push({ label: '源视频总帧数', value: formatVideoMetadataValue(metadata.sourceTotalFrames) });
+    }
+    if (metadata.sourceDurationSeconds !== null) {
+        items.push({ label: '源视频时长', value: formatVideoMetadataValue(metadata.sourceDurationSeconds, '秒') });
+    }
+    if (metadata.sourceFps !== null) {
+        items.push({ label: '源视频帧率', value: formatVideoMetadataValue(metadata.sourceFps, 'FPS') });
+    }
+    if (metadata.sampledFrameCount !== null) {
+        items.push({ label: '采样帧数', value: formatVideoMetadataValue(metadata.sampledFrameCount) });
+    }
+    if (metadata.analyzedFrameCount !== null) {
+        items.push({ label: '分析帧数', value: formatVideoMetadataValue(metadata.analyzedFrameCount) });
+    }
+    if (metadata.sampledDurationSeconds !== null) {
+        items.push({ label: '采样时长', value: formatVideoMetadataValue(metadata.sampledDurationSeconds, '秒') });
+    }
+
+    return items;
 }
 
 function formatDetectionResultModelLabel(modelInfo, selectedModel) {
@@ -376,7 +479,7 @@ function displayResults(results) {
             : 'bg-gray-100 text-gray-800';
 
         const confidenceValue = isSuccess ? `${result.confidence}%` : '-';
-        const confidenceWidth = isSuccess ? `${result.confidence}%` : '0%';
+        const confidenceWidth = isSuccess ? formatInlineWidthPercent(result.confidence) : '0%';
         const isVideo = isVideoFile(result.filename);
         const predictedConfidenceLabel = getPredictedConfidenceLabel();
         const fakeThresholdLabel = getDecisionThresholdLabel(result.decisionMetrics);
@@ -399,8 +502,8 @@ function displayResults(results) {
                 <div class="flex items-center">
                     <i class="fas fa-file-${isVideo ? 'video' : 'image'} text-gray-400 mr-3"></i>
                     <div>
-                        <h4 class="font-medium text-gray-900">${result.filename}</h4>
-                        <p class="text-sm text-gray-500">模型: ${result.model} | 处理时间: ${result.processingTime || '-'}s</p>
+                        <h4 class="font-medium text-gray-900">${escapeHtml(result.filename)}</h4>
+                        <p class="text-sm text-gray-500">模型: ${escapeHtml(result.model)} | 处理时间: ${escapeHtml(result.processingTime || '-')}s</p>
                     </div>
                 </div>
                 <span class="px-3 py-1 rounded-full text-xs font-medium ${statusClass}">
@@ -410,7 +513,7 @@ function displayResults(results) {
             <div class="space-y-2">
                 <div class="flex justify-between items-center">
                     <span class="text-sm text-gray-600">${escapeHtml(predictedConfidenceLabel)}</span>
-                    <span class="text-sm font-medium text-gray-900">${confidenceValue}</span>
+                    <span class="text-sm font-medium text-gray-900">${escapeHtml(confidenceValue)}</span>
                 </div>
                 <div class="w-full bg-gray-200 rounded-full h-2">
                     <div class="bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 h-2 rounded-full" 
@@ -449,13 +552,17 @@ async function loadDetectionModels() {
         }
 
         if (modelSelect) {
-            modelSelect.innerHTML = models.map(model => `
-                <option value="${serializeDetectionModel(model)}">${model.label}${model.is_default ? ' (默认)' : ''}</option>
+            const optionMarkup = models.map(model => `
+                <option value="${escapeHtml(serializeDetectionModel(model))}">${escapeHtml(`${model.label}${model.is_default ? ' (默认)' : ''}`)}</option>
             `).join('');
             const defaultValue = defaultModel.model_id
                 ? `id:${defaultModel.model_id}`
                 : `type:${defaultModel.model_type || ''}`;
-            if (defaultValue !== 'type:') {
+            const hasReadyDefault = Boolean(defaultModel.is_ready && defaultValue !== 'type:');
+            modelSelect.innerHTML = hasReadyDefault
+                ? optionMarkup
+                : `<option value="" selected>请选择可用模型</option>${optionMarkup}`;
+            if (hasReadyDefault) {
                 modelSelect.value = defaultValue;
             }
         }
@@ -466,7 +573,7 @@ async function loadDetectionModels() {
                 : Array.from(new Set(models.map(model => model.model_type).filter(Boolean)));
             modelFilter.innerHTML = `
                 <option value="">所有模型</option>
-                ${filterTypes.map(modelType => `<option value="${modelType}">${formatModelLabel(modelType)}</option>`).join('')}
+                ${filterTypes.map(modelType => `<option value="${escapeHtml(modelType)}">${escapeHtml(formatModelLabel(modelType))}</option>`).join('')}
             `;
         }
     } catch (error) {
@@ -519,6 +626,7 @@ function sanitizeReportFilename(value, fallback = 'report') {
 
 function buildReportDataFromCurrentResult(record) {
     if (!record) return null;
+    const videoMetadata = extractVideoMetadata(record);
     return {
         title: 'Deepfake 检测报告',
         fileName: record.filename,
@@ -531,9 +639,13 @@ function buildReportDataFromCurrentResult(record) {
         confidenceText: record.result === 'error' ? '-' : `${record.confidence}%`,
         confidenceValue: typeof record.rawConfidence === 'number' ? record.rawConfidence : null,
         processingTimeText: record.processingTime ? `${record.processingTime} 秒` : '-',
-        totalFrames: record.totalFrames ?? '-',
-        processedFrames: record.processedFrames ?? '-',
-        duration: record.duration ?? '-',
+        sourceTotalFrames: videoMetadata.sourceTotalFrames,
+        sourceDurationSeconds: videoMetadata.sourceDurationSeconds,
+        sourceFps: videoMetadata.sourceFps,
+        sampledFrameCount: videoMetadata.sampledFrameCount,
+        analyzedFrameCount: videoMetadata.analyzedFrameCount,
+        sampledDurationSeconds: videoMetadata.sampledDurationSeconds,
+        videoMetadataItems: buildVideoMetadataItems(videoMetadata),
         errorMessage: record.errorMessage || '',
         probabilities: record.probabilities || null,
         decisionMetrics: record.decisionMetrics || null,
@@ -544,22 +656,30 @@ function buildReportDataFromCurrentResult(record) {
 function buildReportDataFromHistoryRecord(record) {
     if (!record) return null;
     const historyModelLabel = formatHistoryModelLabel(record);
+    const historyOutcome = getHistoryOutcome(record);
+    const videoMetadata = extractVideoMetadata(record);
     return {
         title: 'Deepfake 检测历史报告',
         fileName: record.file_name,
         fileType: record.file_type === 'video' ? '视频' : '图片',
         detectedAt: formatDateTime(record.created_at),
         modelName: historyModelLabel,
-        predictionText: record.prediction === 'real' ? '真实' : '伪造',
-        predictionClass: record.prediction === 'real' ? 'real' : 'fake',
+        predictionText: historyOutcome.text,
+        predictionClass: historyOutcome.className,
         confidenceLabel: getPredictedConfidenceLabel(),
-        confidenceText: formatAccuracy(record.confidence),
-        confidenceValue: typeof record.confidence === 'number' ? record.confidence : null,
+        confidenceText: historyOutcome.isFailed ? '-' : formatAccuracy(record.confidence),
+        confidenceValue: historyOutcome.isFailed
+            ? null
+            : (typeof record.confidence === 'number' ? record.confidence : null),
         processingTimeText: typeof record.processing_time === 'number' ? `${record.processing_time.toFixed(2)} 秒` : '-',
-        totalFrames: '-',
-        processedFrames: '-',
-        duration: '-',
-        errorMessage: '',
+        sourceTotalFrames: videoMetadata.sourceTotalFrames,
+        sourceDurationSeconds: videoMetadata.sourceDurationSeconds,
+        sourceFps: videoMetadata.sourceFps,
+        sampledFrameCount: videoMetadata.sampledFrameCount,
+        analyzedFrameCount: videoMetadata.analyzedFrameCount,
+        sampledDurationSeconds: videoMetadata.sampledDurationSeconds,
+        videoMetadataItems: buildVideoMetadataItems(videoMetadata),
+        errorMessage: record.error_message || '',
         probabilities: null,
         decisionMetrics: null,
         generatedAt: new Date().toLocaleString('zh-CN'),
@@ -567,6 +687,9 @@ function buildReportDataFromHistoryRecord(record) {
 }
 
 function renderDetectionReportHtml(report) {
+    const videoMetadataItems = Array.isArray(report.videoMetadataItems)
+        ? report.videoMetadataItems
+        : buildVideoMetadataItems(report);
     const predictionBadgeClass = report.predictionClass === 'real'
         ? '#166534'
         : report.predictionClass === 'fake'
@@ -584,11 +707,15 @@ function renderDetectionReportHtml(report) {
         ? Object.entries(report.probabilities).map(([label, value]) => `
             <tr>
                 <td>${escapeHtml(label)}</td>
-                <td>${formatAccuracy(value)}</td>
+                <td>${escapeHtml(formatAccuracy(value))}</td>
             </tr>
         `).join('')
         : '<tr><td colspan="2">未返回类别概率</td></tr>';
     const decisionMetricRows = renderDecisionMetricTableRows(report.decisionMetrics);
+    const mediaAnalysisItems = [
+        ...videoMetadataItems.map(item => `<div class="item"><div class="label">${escapeHtml(item.label)}</div><div class="value">${escapeHtml(item.value)}</div></div>`),
+        `<div class="item"><div class="label">生成时间</div><div class="value">${escapeHtml(report.generatedAt)}</div></div>`
+    ].join('');
 
     return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -650,10 +777,7 @@ function renderDetectionReportHtml(report) {
     <div class="section">
       <h2>媒体分析</h2>
       <div class="grid">
-        <div class="item"><div class="label">总帧数</div><div class="value">${escapeHtml(String(report.totalFrames))}</div></div>
-        <div class="item"><div class="label">处理帧数</div><div class="value">${escapeHtml(String(report.processedFrames))}</div></div>
-        <div class="item"><div class="label">时长</div><div class="value">${escapeHtml(String(report.duration))}</div></div>
-        <div class="item"><div class="label">生成时间</div><div class="value">${escapeHtml(report.generatedAt)}</div></div>
+        ${mediaAnalysisItems}
       </div>
     </div>
     <div class="section">
@@ -704,6 +828,13 @@ function viewDetectionResultDetail(index) {
         return;
     }
 
+    const videoMetadataGridItems = buildVideoMetadataItems(record).map(item => `
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">${escapeHtml(item.label)}</label>
+                        <p class="text-sm text-gray-900">${escapeHtml(item.value)}</p>
+                    </div>
+                `).join('');
+
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
     modal.innerHTML = `
@@ -722,7 +853,7 @@ function viewDetectionResultDetail(index) {
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">检测时间</label>
-                        <p class="text-sm text-gray-900">${formatDateTime(record.createdAt)}</p>
+                        <p class="text-sm text-gray-900">${escapeHtml(formatDateTime(record.createdAt))}</p>
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
@@ -742,32 +873,21 @@ function viewDetectionResultDetail(index) {
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">处理时间</label>
-                        <p class="text-sm text-gray-900">${record.processingTime || '-'} 秒</p>
+                        <p class="text-sm text-gray-900">${escapeHtml(record.processingTime || '-')} 秒</p>
                     </div>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">${getPredictedConfidenceLabel()}</label>
-                    <p class="text-sm text-gray-900">${record.result === 'error' ? '-' : `${record.confidence}%`}</p>
+                    <p class="text-sm text-gray-900">${escapeHtml(record.result === 'error' ? '-' : `${record.confidence}%`)}</p>
                 </div>
                 ${record.result !== 'error' && record.decisionMetrics ? `
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">判定辅助指标</label>
                     ${renderDecisionMetricGrid(record.decisionMetrics)}
                 </div>` : ''}
-                ${record.type === 'video' ? `
+                ${record.type === 'video' && videoMetadataGridItems ? `
                 <div class="grid grid-cols-3 gap-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">总帧数</label>
-                        <p class="text-sm text-gray-900">${record.totalFrames ?? '-'}</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">处理帧数</label>
-                        <p class="text-sm text-gray-900">${record.processedFrames ?? '-'}</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">时长</label>
-                        <p class="text-sm text-gray-900">${record.duration ?? '-'} 秒</p>
-                    </div>
+                    ${videoMetadataGridItems}
                 </div>` : ''}
                 ${record.errorMessage ? `
                 <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 break-all">
@@ -815,6 +935,11 @@ function downloadDetectionResultReport(index) {
         return;
     }
 
+    const videoMetadataLines = record.type === 'video'
+        ? buildVideoMetadataItems(record).map(item => `- ${item.label}: ${item.value}`).join('\n    ')
+        : '';
+    const videoMetadataSection = videoMetadataLines ? `\n    ${videoMetadataLines}` : '';
+
     const reportContent = `
 Deepfake 检测报告
 
@@ -833,7 +958,7 @@ Deepfake 检测报告
     - ${escapeHtml(getThresholdGapLabel(record.decisionMetrics))}: ${escapeHtml(formatSignedPercentFromProbability(record.decisionMetrics?.threshold_gap))}
     - 决策边际: ${escapeHtml(formatSignedPercentFromProbability(record.decisionMetrics?.decision_margin))}
     - 处理时间: ${record.processingTime || '-'} 秒
-    ${record.type === 'video' ? `- 总帧数: ${record.totalFrames ?? '-'}\n    - 处理帧数: ${record.processedFrames ?? '-'}\n    - 时长: ${record.duration ?? '-'} 秒` : ''}
+    ${videoMetadataSection}
     ${record.errorMessage ? `- 错误信息: ${record.errorMessage}` : ''}
 
 生成时间: ${new Date().toLocaleString('zh-CN')}
@@ -844,7 +969,7 @@ Deepfake 检测报告
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `deepfake_result_${record.filename.replace(/\.[^/.]+$/, '')}_${Date.now()}.txt`;
+    a.download = `deepfake_result_${sanitizeReportFilename(record.filename, 'result')}_${Date.now()}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -873,7 +998,8 @@ async function loadHistory() {
 
         const response = await axios.get(`${API_BASE_URL}/detection/history`, {
             params: {
-                prediction: resultFilter || undefined,
+                prediction: resultFilter && resultFilter !== 'failed' ? resultFilter : undefined,
+                status: resultFilter === 'failed' ? 'failed' : undefined,
                 model_type: modelFilterValue || undefined,
                 limit: 100,
                 order_desc: true
@@ -896,28 +1022,28 @@ async function loadHistory() {
         }
 
         const rows = history.map(record => {
-            const resultClass = record.prediction === 'real'
-                ? 'bg-green-100 text-green-800'
-                : 'bg-red-100 text-red-800';
-            const resultText = record.prediction === 'real' ? '真实' : '伪造';
-            const confidence = formatAccuracy(record.confidence);
+            const historyOutcome = getHistoryOutcome(record);
+            const resultClass = historyOutcome.badgeClass;
+            const resultText = historyOutcome.text;
+            const confidence = historyOutcome.isFailed ? '-' : formatAccuracy(record.confidence);
             const modelLabel = formatHistoryModelLabel(record);
+            const recordId = escapeHtml(String(record.id ?? ''));
 
             return `
                 <tr class="hover:bg-gray-50">
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${formatDateTime(record.created_at)}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${record.file_name}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${modelLabel}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${escapeHtml(formatDateTime(record.created_at))}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${escapeHtml(record.file_name)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${escapeHtml(modelLabel)}</td>
                     <td class="px-6 py-4 whitespace-nowrap">
                         <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${resultClass}">
                             ${resultText}
                         </span>
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${confidence}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${escapeHtml(confidence)}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button class="text-primary-600 hover:text-primary-900 mr-3" onclick="viewHistoryDetail(${record.id})">查看</button>
-                        <button class="text-gray-600 hover:text-gray-900" onclick="downloadReport(${record.id})">下载</button>
-                        <button class="text-red-600 hover:text-red-800 ml-3" onclick="deleteHistoryRecord(${record.id})">删除</button>
+                        <button class="text-primary-600 hover:text-primary-900 mr-3" data-record-id="${recordId}" onclick="viewHistoryDetail(this.dataset.recordId)">查看</button>
+                        <button class="text-gray-600 hover:text-gray-900" data-record-id="${recordId}" onclick="downloadReport(this.dataset.recordId)">下载</button>
+                        <button class="text-red-600 hover:text-red-800 ml-3" data-record-id="${recordId}" onclick="deleteHistoryRecord(this.dataset.recordId)">删除</button>
                     </td>
                 </tr>
             `;
@@ -929,7 +1055,12 @@ async function loadHistory() {
         if (resultFilter || modelFilterValue) {
             const filterText = [];
             if (resultFilter) {
-                filterText.push(`结果: ${resultFilter === 'real' ? '真实' : '伪造'}`);
+                const filterLabel = resultFilter === 'real'
+                    ? '真实'
+                    : resultFilter === 'fake'
+                    ? '伪造'
+                    : '失败';
+                filterText.push(`结果: ${filterLabel}`);
             }
             if (modelFilterValue) {
                 filterText.push(`模型: ${modelFilterValue}`);
@@ -1115,10 +1246,52 @@ function renderModelDetailModal(model) {
     if (!body) return;
 
     const metrics = model.metrics || {};
+    const advancedMetricCards = [];
+    const hasPrecision = hasMetricValue(metrics.precision);
+    const hasRecall = hasMetricValue(metrics.recall);
+    const hasF1Score = hasMetricValue(metrics.f1_score);
+    const hasConfusionMatrix = hasStructuredValue(metrics.confusion_matrix);
+    const hasClassificationReport = hasStructuredValue(metrics.classification_report);
     const deploymentInfo = renderJsonPanel(model.deployment_info, '暂无部署信息');
     const parameterInfo = renderJsonPanel(model.parameters, '暂无模型参数');
-    const confusionMatrix = renderJsonPanel(metrics.confusion_matrix, '暂无混淆矩阵');
-    const classificationReport = renderJsonPanel(metrics.classification_report, '暂无分类报告');
+
+    if (hasPrecision) {
+        advancedMetricCards.push(`<div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">Precision</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.precision)}</p></div>`);
+    }
+    if (hasRecall) {
+        advancedMetricCards.push(`<div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">Recall</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.recall)}</p></div>`);
+    }
+    if (hasF1Score) {
+        advancedMetricCards.push(`<div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">F1 Score</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.f1_score)}</p></div>`);
+    }
+
+    const advancedMetricCardsMarkup = advancedMetricCards.length
+        ? advancedMetricCards.join('')
+        : '<div class="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200 xl:col-span-3"><p class="text-xs text-slate-500">高级分类指标</p><p class="mt-2 text-sm leading-6 text-slate-600">当前模型未返回 Precision / Recall / F1 汇总，卡片仅展示后端实际提供的准确率。</p></div>';
+
+    const advancedReportPanelsMarkup = hasConfusionMatrix || hasClassificationReport
+        ? `
+            <div class="grid gap-6 xl:grid-cols-2">
+                ${hasConfusionMatrix ? `
+                    <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                        <h5 class="text-lg font-semibold text-slate-900">混淆矩阵</h5>
+                        <div class="mt-4">${renderJsonPanel(metrics.confusion_matrix, '暂无混淆矩阵')}</div>
+                    </div>
+                ` : ''}
+                ${hasClassificationReport ? `
+                    <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                        <h5 class="text-lg font-semibold text-slate-900">分类报告</h5>
+                        <div class="mt-4">${renderJsonPanel(metrics.classification_report, '暂无分类报告')}</div>
+                    </div>
+                ` : ''}
+            </div>
+        `
+        : `
+            <div class="rounded-3xl border border-slate-200 bg-white p-5">
+                <h5 class="text-lg font-semibold text-slate-900">高级报告</h5>
+                <div class="mt-4 rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">当前模型未提供混淆矩阵或分类报告，详情页仅展示后端实际返回的指标。</div>
+            </div>
+        `;
 
     body.innerHTML = `
         <div class="space-y-6">
@@ -1137,9 +1310,7 @@ function renderModelDetailModal(model) {
                     <p class="mt-4 text-sm leading-6 text-slate-600">${escapeHtml(model.description || '暂无描述')}</p>
                     <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         <div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">准确率</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.accuracy)}</p></div>
-                        <div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">Precision</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.precision)}</p></div>
-                        <div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">Recall</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.recall)}</p></div>
-                        <div class="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><p class="text-xs text-slate-500">F1 Score</p><p class="mt-2 text-2xl font-semibold text-slate-900">${formatAccuracy(metrics.f1_score)}</p></div>
+                        ${advancedMetricCardsMarkup}
                     </div>
                 </div>
                 <div class="rounded-3xl border border-slate-200 bg-white p-5">
@@ -1170,16 +1341,7 @@ function renderModelDetailModal(model) {
                 </div>
             </div>
 
-            <div class="grid gap-6 xl:grid-cols-2">
-                <div class="rounded-3xl border border-slate-200 bg-white p-5">
-                    <h5 class="text-lg font-semibold text-slate-900">混淆矩阵</h5>
-                    <div class="mt-4">${confusionMatrix}</div>
-                </div>
-                <div class="rounded-3xl border border-slate-200 bg-white p-5">
-                    <h5 class="text-lg font-semibold text-slate-900">分类报告</h5>
-                    <div class="mt-4">${classificationReport}</div>
-                </div>
-            </div>
+            ${advancedReportPanelsMarkup}
         </div>
     `;
 
@@ -1771,8 +1933,8 @@ async function loadTrainingJobs(options = {}) {
             const currentEpoch = job.current_epoch ?? (totalEpochs && progress > 0
                 ? Math.max(0, Math.round((Math.min(progress, 99) / 100) * totalEpochs))
                 : 0);
-            const validationAccuracy = formatAccuracy(job.results?.val_accuracy ?? job.results?.accuracy);
-            const validationLoss = formatLoss(job.results?.val_loss ?? job.results?.loss);
+            const validationAccuracy = formatAccuracy(job.results?.val_accuracy);
+            const validationLoss = formatLoss(job.results?.val_loss);
             const startedAt = formatDateTime(job.started_at || job.created_at);
             const completedAt = job.completed_at ? formatDateTime(job.completed_at) : '—';
             const modelLabel = formatModelLabel(job.model_type);
@@ -1850,7 +2012,7 @@ async function loadTrainingJobs(options = {}) {
                     </div>
                     <div class="text-center p-2 bg-gray-50 rounded">
                         <p class="text-sm font-semibold text-gray-900">${bestEpoch ?? '-'}</p>
-                        <p class="text-xs text-gray-500">最佳轮次</p>
+                        <p class="text-xs text-gray-500">最佳 checkpoint</p>
                     </div>
                     <div class="text-center p-2 bg-gray-50 rounded">
                         <p class="text-sm font-semibold text-gray-900">${epochs}</p>
@@ -1858,7 +2020,7 @@ async function loadTrainingJobs(options = {}) {
                     </div>
                 </div>
 
-                <p class="text-[11px] text-gray-400 mb-3">主卡片优先展示视频级验证结果；样本级验证结果用于辅助排查 clip/frame 表现。</p>
+                <p class="text-[11px] text-gray-400 mb-3">主卡片优先展示视频级验证结果；最佳 checkpoint 按 checkpoint selection score 选出，同分时再比较视频级验证准确率与损失。</p>
 
                 <p class="text-xs text-gray-500 mb-3">模型文件: ${modelFileStatus}（由人工决定是否保留）</p>
                 
@@ -2042,21 +2204,22 @@ function renderTrainingDetailModal(job, metricsResponse) {
     const bestMetric = getBestValidationMetric(metricsResponse);
     const phaseMessage = getTrainingPhaseMessage(job);
     const trainingDevice = (job.parameters?.training_device || 'auto').toUpperCase();
-    const validationAccuracy = formatAccuracy(job.results?.val_accuracy ?? job.results?.accuracy);
-    const validationLoss = formatLoss(job.results?.val_loss ?? job.results?.loss);
+    const validationAccuracy = formatAccuracy(job.results?.val_accuracy);
+    const validationLoss = formatLoss(job.results?.val_loss);
     const sampleValidationAccuracy = formatAccuracy(job.results?.val_sample_accuracy ?? latestMetric?.val_sample_accuracy);
     const sampleValidationLoss = formatLoss(job.results?.val_sample_loss ?? latestMetric?.val_sample_loss);
     const validationVideoCount = job.results?.val_video_count ?? latestMetric?.val_video_count ?? '-';
     const latestTrainAccuracy = formatAccuracy(latestMetric?.train_accuracy);
     const latestTrainLoss = formatLoss(latestMetric?.train_loss);
-    const latestValAccuracy = formatAccuracy(latestMetric?.val_accuracy ?? job.results?.val_accuracy ?? job.results?.accuracy);
-    const latestValLoss = formatLoss(latestMetric?.val_loss ?? job.results?.val_loss ?? job.results?.loss);
+    const latestValAccuracy = formatAccuracy(latestMetric?.val_accuracy ?? job.results?.val_accuracy);
+    const latestValLoss = formatLoss(latestMetric?.val_loss ?? job.results?.val_loss);
     const latestSampleValAccuracy = formatAccuracy(latestMetric?.val_sample_accuracy ?? job.results?.val_sample_accuracy);
     const latestSampleValLoss = formatLoss(latestMetric?.val_sample_loss ?? job.results?.val_sample_loss);
-    const bestValAccuracy = formatAccuracy(bestMetric?.val_accuracy ?? job.results?.val_accuracy ?? job.results?.accuracy);
-    const bestValLoss = formatLoss(bestMetric?.val_loss ?? job.results?.val_loss ?? job.results?.loss);
+    const bestValAccuracy = formatAccuracy(bestMetric?.val_accuracy ?? job.results?.val_accuracy);
+    const bestValLoss = formatLoss(bestMetric?.val_loss ?? job.results?.val_loss);
     const bestSampleValAccuracy = formatAccuracy(bestMetric?.val_sample_accuracy);
     const bestSampleValLoss = formatLoss(bestMetric?.val_sample_loss);
+    const bestCheckpointScore = formatCheckpointSelectionScore(bestMetric?.checkpoint_selection_score ?? job.results?.checkpoint_selection_score);
     const preprocessingMarkup = buildTrainingPreprocessingMarkup(job);
     const chartDownloadDisabled = !metricsResponse?.available;
 
@@ -2167,8 +2330,10 @@ function renderTrainingDetailModal(job, metricsResponse) {
                             <p class="mt-1">样本级验证损失: <span class="font-semibold text-slate-900">${latestSampleValLoss}</span></p>
                         </div>
                         <div class="rounded-2xl bg-slate-50 p-4">
-                            <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Best Validation</p>
+                            <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Best Checkpoint</p>
                             <p class="mt-2 text-slate-900">最佳 epoch: ${escapeHtml(String(bestMetric?.epoch ?? job.results?.best_epoch ?? '-'))}</p>
+                            <p class="mt-1 text-slate-900">checkpoint selection score: <span class="font-semibold text-slate-900">${bestCheckpointScore}</span></p>
+                            <p class="mt-1 text-xs text-slate-500">后端按 checkpoint selection score 选取 checkpoint；同分时再比较视频级验证准确率与损失。</p>
                             <p class="mt-1">最佳视频级验证准确率: <span class="font-semibold text-slate-900">${bestValAccuracy}</span></p>
                             <p class="mt-1">对应视频级验证损失: <span class="font-semibold text-slate-900">${bestValLoss}</span></p>
                             <p class="mt-1">对应样本级验证准确率: <span class="font-semibold text-slate-900">${bestSampleValAccuracy}</span></p>
@@ -2586,6 +2751,12 @@ function formatSignedPercentFromProbability(value) {
     return `${percentValue >= 0 ? '+' : ''}${percentValue.toFixed(1)}%`;
 }
 
+function formatInlineWidthPercent(value) {
+    const numericValue = Number.parseFloat(value);
+    if (!Number.isFinite(numericValue)) return '0%';
+    return `${Math.max(0, Math.min(100, numericValue)).toFixed(1)}%`;
+}
+
 function getPredictedConfidenceLabel() {
     return '预测结果置信度';
 }
@@ -2679,6 +2850,28 @@ function formatAccuracy(value) {
 function formatLoss(value) {
     if (value === null || value === undefined) return '-';
     return value.toFixed(4);
+}
+
+function hasMetricValue(value) {
+    return value !== null && value !== undefined && value !== '';
+}
+
+function hasStructuredValue(value) {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'string') return value.trim().length > 0;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'object') return Object.keys(value).length > 0;
+    return true;
+}
+
+function toFiniteNumber(value, fallback) {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function formatCheckpointSelectionScore(value) {
+    const numeric = toFiniteNumber(value, null);
+    return numeric === null ? '-' : numeric.toFixed(4);
 }
 
 function getTrainingStatusLabel(status) {
@@ -2810,9 +3003,25 @@ function getBestValidationMetric(metricsResponse) {
     if (!metrics.length) return null;
     return metrics.reduce((best, point) => {
         if (!best) return point;
-        const pointValue = typeof point.val_accuracy === 'number' ? point.val_accuracy : -Infinity;
-        const bestValue = typeof best.val_accuracy === 'number' ? best.val_accuracy : -Infinity;
-        return pointValue > bestValue ? point : best;
+        const pointSelectionScore = toFiniteNumber(point.checkpoint_selection_score, -Infinity);
+        const bestSelectionScore = toFiniteNumber(best.checkpoint_selection_score, -Infinity);
+        if (pointSelectionScore !== bestSelectionScore) {
+            return pointSelectionScore > bestSelectionScore ? point : best;
+        }
+
+        const pointValAccuracy = toFiniteNumber(point.val_accuracy, -Infinity);
+        const bestValAccuracy = toFiniteNumber(best.val_accuracy, -Infinity);
+        if (pointValAccuracy !== bestValAccuracy) {
+            return pointValAccuracy > bestValAccuracy ? point : best;
+        }
+
+        const pointValLoss = toFiniteNumber(point.val_loss, Infinity);
+        const bestValLoss = toFiniteNumber(best.val_loss, Infinity);
+        if (pointValLoss !== bestValLoss) {
+            return pointValLoss < bestValLoss ? point : best;
+        }
+
+        return best;
     }, null);
 }
 
@@ -2870,19 +3079,57 @@ function mapModelStatusClass(status) {
     return 'bg-gray-100 text-gray-800';
 }
 
+function getHistoryOutcome(record) {
+    if (
+        record?.status === 'failed'
+        || record?.prediction === 'failed'
+        || record?.prediction === null
+        || record?.prediction === undefined
+    ) {
+        return {
+            text: '失败',
+            className: 'error',
+            badgeClass: 'bg-amber-100 text-amber-800',
+            isFailed: true
+        };
+    }
+    if (record.prediction === 'real') {
+        return {
+            text: '真实',
+            className: 'real',
+            badgeClass: 'bg-green-100 text-green-800',
+            isFailed: false
+        };
+    }
+    return {
+        text: '伪造',
+        className: 'fake',
+        badgeClass: 'bg-red-100 text-red-800',
+        isFailed: false
+    };
+}
+
 // 统计功能
 async function loadStatistics() {
     try {
         const response = await axios.get(`${API_BASE_URL}/detection/statistics`);
         const stats = response.data;
+        const failedCountEl = document.getElementById('failedCount');
 
         document.getElementById('totalDetections').textContent = stats.total_detections.toLocaleString();
         document.getElementById('realCount').textContent = stats.real_detections.toLocaleString();
         document.getElementById('fakeCount').textContent = stats.fake_detections.toLocaleString();
+        if (failedCountEl) {
+            failedCountEl.textContent = stats.failed_detections.toLocaleString();
+        }
         document.getElementById('accuracy').textContent = formatAccuracy(stats.average_confidence);
 
         loadTrendChart(stats.daily_detections || {});
     } catch (error) {
+        const failedCountEl = document.getElementById('failedCount');
+        if (failedCountEl) {
+            failedCountEl.textContent = '-';
+        }
         showNotification('加载统计数据失败：' + getApiErrorMessage(error), 'error');
     }
 }
@@ -2950,8 +3197,19 @@ function showLoading(show) {
 }
 
 function getApiErrorMessage(error) {
-    if (error?.response?.data?.detail) {
-        return error.response.data.detail;
+    const detail = error?.response?.data?.detail;
+    if (typeof detail === 'string' && detail) {
+        return detail;
+    }
+    if (detail && typeof detail === 'object') {
+        const recordId = detail.record_id ?? detail.recordId;
+        const message = detail.message || detail.detail || detail.error_message || detail.errorMessage;
+        if (message && recordId !== null && recordId !== undefined) {
+            return `${message}（record_id: ${recordId}）`;
+        }
+        if (message) {
+            return message;
+        }
     }
     if (error?.message) {
         return error.message;
@@ -3009,6 +3267,14 @@ function viewHistoryDetail(index) {
     // 创建详情模态框
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    const recordId = escapeHtml(String(record.id ?? index ?? ''));
+    const historyOutcome = getHistoryOutcome(record);
+    const historyVideoMetadataGridItems = buildVideoMetadataItems(record).map(item => `
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">${escapeHtml(item.label)}</label>
+                        <p class="text-sm text-gray-900">${escapeHtml(item.value)}</p>
+                    </div>
+                `).join('');
     modal.innerHTML = `
         <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-start mb-4">
@@ -3022,27 +3288,23 @@ function viewHistoryDetail(index) {
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">文件名</label>
-                        <p class="text-sm text-gray-900">${record.file_name}</p>
+                        <p class="text-sm text-gray-900">${escapeHtml(record.file_name)}</p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">检测时间</label>
-                        <p class="text-sm text-gray-900">${formatDateTime(record.created_at)}</p>
+                        <p class="text-sm text-gray-900">${escapeHtml(formatDateTime(record.created_at))}</p>
                     </div>
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">使用模型</label>
-                        <p class="text-sm text-gray-900">${formatHistoryModelLabel(record)}</p>
+                        <p class="text-sm text-gray-900">${escapeHtml(formatHistoryModelLabel(record))}</p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">检测结果</label>
-                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            record.prediction === 'real' 
-                                ? 'bg-green-100 text-green-800' 
-                                : 'bg-red-100 text-red-800'
-                        }">
-                            ${record.prediction === 'real' ? '真实' : '伪造'}
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${historyOutcome.badgeClass}">
+                            ${historyOutcome.text}
                         </span>
                     </div>
                 </div>
@@ -3052,41 +3314,55 @@ function viewHistoryDetail(index) {
                     <div class="flex items-center space-x-3">
                         <div class="flex-1 bg-gray-200 rounded-full h-2">
                             <div class="bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 h-2 rounded-full" 
-                                 style="width: ${(record.confidence * 100).toFixed(1)}%"></div>
+                                 style="width: ${historyOutcome.isFailed ? '0%' : formatInlineWidthPercent(typeof record.confidence === 'number' ? record.confidence * 100 : record.confidence)}"></div>
                         </div>
-                        <span class="text-sm font-medium text-gray-900">${formatAccuracy(record.confidence)}</span>
+                        <span class="text-sm font-medium text-gray-900">${escapeHtml(historyOutcome.isFailed ? '-' : formatAccuracy(record.confidence))}</span>
                     </div>
                 </div>
                 
                 ${record.processing_time ? `
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">处理时间</label>
-                    <p class="text-sm text-gray-900">${record.processing_time.toFixed(2)} 秒</p>
+                    <p class="text-sm text-gray-900">${escapeHtml(record.processing_time.toFixed(2))} 秒</p>
+                </div>
+                ` : ''}
+                ${record.file_type === 'video' && historyVideoMetadataGridItems ? `
+                <div class="grid grid-cols-2 gap-4">
+                    ${historyVideoMetadataGridItems}
                 </div>
                 ` : ''}
                 
                 <div class="bg-gray-50 rounded-lg p-4">
                     <h3 class="text-sm font-medium text-gray-900 mb-2">检测分析</h3>
                     <p class="text-sm text-gray-600">
-                        ${record.prediction === 'real' 
+                        ${historyOutcome.isFailed
+                            ? '该检测任务未成功完成，因此没有产生可信的真实/伪造结论。请结合错误信息重新提交或排查模型与文件状态。'
+                            : record.prediction === 'real' 
                             ? '经过深度学习模型分析，该文件被判定为真实内容，未发现明显的深度伪造痕迹。'
                             : '经过深度学习模型分析，该文件被判定为可能包含深度伪造内容，建议进一步验证。'}
                     </p>
                 </div>
+                ${record.error_message ? `
+                <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <h3 class="text-sm font-medium text-amber-900 mb-2">失败原因</h3>
+                    <p class="text-sm text-amber-800">${escapeHtml(record.error_message)}</p>
+                </div>
+                ` : ''}
                 
                 <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <h3 class="text-sm font-medium text-blue-900 mb-2">
                         <i class="fas fa-info-circle mr-2"></i>技术说明
                     </h3>
                     <p class="text-sm text-blue-800">
-                        本检测结果基于 ${formatHistoryModelLabel(record)} 模型进行分析，该模型在多个公开数据集上进行了训练，
-                        具有较高的准确率。预测结果置信度表示模型对当前判定类别的概率。
+                        ${historyOutcome.isFailed
+                            ? `本次任务原本计划使用 ${escapeHtml(formatHistoryModelLabel(record))} 模型进行分析，但检测流程未成功完成，因此没有生成可解释的类别概率。`
+                            : `本检测结果基于 ${escapeHtml(formatHistoryModelLabel(record))} 模型的当前登记信息进行分析。预测结果置信度表示模型对当前判定类别的概率，具体训练来源与高级指标请以模型详情页中的实际登记信息为准。`}
                     </p>
                 </div>
             </div>
             
             <div class="flex justify-end space-x-3 mt-6">
-                <button onclick="downloadReport(${index})" class="px-4 py-2 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
+                <button data-record-id="${recordId}" onclick="downloadReport(this.dataset.recordId)" class="px-4 py-2 text-sm bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
                     <i class="fas fa-download mr-2"></i> 下载报告
                 </button>
                 <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 text-sm bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors">
@@ -3134,7 +3410,7 @@ async function deleteHistoryRecord(recordId) {
 }
 
 function getHistoryRecordById(recordId) {
-    return detectionHistoryCache.find(item => item.id === recordId);
+    return detectionHistoryCache.find(item => String(item.id) === String(recordId));
 }
 
 // 键盘快捷键
