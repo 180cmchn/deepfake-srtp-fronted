@@ -2,14 +2,11 @@
 chcp 65001 >nul
 echo 启动 Deepfake 检测平台前端...
 echo.
-echo 请确保：
-echo 1. 后端 API 服务在 http://localhost:8000 运行
-echo 2. 浏览器已安装并支持现代 Web 标准
+set FRONTEND_HOST=%FRONTEND_HOST%
+if "%FRONTEND_HOST%"=="" set FRONTEND_HOST=0.0.0.0
+set FRONTEND_PORT=%FRONTEND_PORT%
+if "%FRONTEND_PORT%"=="" set FRONTEND_PORT=3000
+echo 前端服务地址: http://localhost:%FRONTEND_PORT%
+echo 后端 API 默认地址由 config.js 控制
 echo.
-echo 正在打开浏览器...
-start index.html
-echo.
-echo 前端应用已启动！
-echo 如果没有自动打开，请手动在浏览器中打开 index.html 文件
-echo.
-pause
+call npm run dev

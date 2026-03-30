@@ -4,9 +4,10 @@
   "description": "A modern, clean frontend for deepfake detection platform",
   "main": "index.html",
   "scripts": {
-    "dev": "live-server --port=3000 --host=0.0.0.0",
+    "dev": "node dev-server.js",
     "build": "echo 'Build completed - static files ready'",
-    "start": "live-server --port=3000 --host=0.0.0.0"
+    "start": "node dev-server.js",
+    "test:static": "node tests/frontend_static_contract.test.js"
   },
   "keywords": ["deepfake", "detection", "frontend", "web"],
   "author": "Deepfake Detection Team",
