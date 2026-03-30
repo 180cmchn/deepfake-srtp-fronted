@@ -378,6 +378,8 @@ function displayResults(results) {
         const confidenceValue = isSuccess ? `${result.confidence}%` : '-';
         const confidenceWidth = isSuccess ? `${result.confidence}%` : '0%';
         const isVideo = isVideoFile(result.filename);
+        const predictedConfidenceLabel = getPredictedConfidenceLabel();
+        const fakeThresholdLabel = getDecisionThresholdLabel(result.decisionMetrics);
         const decisionSummary = isSuccess && result.decisionMetrics ? `
             <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <div class="rounded bg-white px-3 py-2 border border-gray-200">
@@ -385,7 +387,7 @@ function displayResults(results) {
                     <p class="mt-1 font-semibold text-gray-900">${escapeHtml(formatPercentFromProbability(result.decisionMetrics.fake_probability))}</p>
                 </div>
                 <div class="rounded bg-white px-3 py-2 border border-gray-200">
-                    <p class="text-gray-500">阈值</p>
+                    <p class="text-gray-500">${escapeHtml(fakeThresholdLabel)}</p>
                     <p class="mt-1 font-semibold text-gray-900">${escapeHtml(formatPercentFromProbability(result.decisionMetrics.confidence_threshold))}</p>
                 </div>
             </div>
@@ -407,7 +409,7 @@ function displayResults(results) {
             </div>
             <div class="space-y-2">
                 <div class="flex justify-between items-center">
-                    <span class="text-sm text-gray-600">置信度</span>
+                    <span class="text-sm text-gray-600">${escapeHtml(predictedConfidenceLabel)}</span>
                     <span class="text-sm font-medium text-gray-900">${confidenceValue}</span>
                 </div>
                 <div class="w-full bg-gray-200 rounded-full h-2">
@@ -525,6 +527,7 @@ function buildReportDataFromCurrentResult(record) {
         modelName: record.model || '-',
         predictionText: record.result === 'real' ? '真实' : record.result === 'fake' ? '伪造' : '失败',
         predictionClass: record.result === 'real' ? 'real' : record.result === 'fake' ? 'fake' : 'error',
+        confidenceLabel: getPredictedConfidenceLabel(),
         confidenceText: record.result === 'error' ? '-' : `${record.confidence}%`,
         confidenceValue: typeof record.rawConfidence === 'number' ? record.rawConfidence : null,
         processingTimeText: record.processingTime ? `${record.processingTime} 秒` : '-',
@@ -549,6 +552,7 @@ function buildReportDataFromHistoryRecord(record) {
         modelName: historyModelLabel,
         predictionText: record.prediction === 'real' ? '真实' : '伪造',
         predictionClass: record.prediction === 'real' ? 'real' : 'fake',
+        confidenceLabel: getPredictedConfidenceLabel(),
         confidenceText: formatAccuracy(record.confidence),
         confidenceValue: typeof record.confidence === 'number' ? record.confidence : null,
         processingTimeText: typeof record.processing_time === 'number' ? `${record.processing_time.toFixed(2)} 秒` : '-',
@@ -638,7 +642,7 @@ function renderDetectionReportHtml(report) {
         <div class="item"><div class="label">处理时间</div><div class="value">${escapeHtml(report.processingTimeText)}</div></div>
       </div>
       <div class="item" style="margin-top: 16px;">
-        <div class="label">置信度</div>
+        <div class="label">${escapeHtml(report.confidenceLabel || getPredictedConfidenceLabel())}</div>
         <div class="value">${escapeHtml(report.confidenceText)}</div>
         <div class="meter"><span></span></div>
       </div>
@@ -668,7 +672,7 @@ function renderDetectionReportHtml(report) {
     </div>
     ${report.errorMessage ? `<div class="section"><div class="error"><strong>错误信息：</strong>${escapeHtml(report.errorMessage)}</div></div>` : ''}
     <div class="section">
-      <div class="note">本报告用于辅助研判，不能替代人工审核。若结果为“伪造”或置信度较低，建议结合原始来源、上下文和其他工具进行交叉验证。</div>
+      <div class="note">本报告用于辅助研判，不能替代人工审核。若结果为“伪造”或预测结果置信度较低，建议结合原始来源、上下文和其他工具进行交叉验证。</div>
     </div>
     <div class="footer">Deepfake 检测平台 v1.0.0</div>
   </div>
@@ -742,7 +746,7 @@ function viewDetectionResultDetail(index) {
                     </div>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">置信度</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">${getPredictedConfidenceLabel()}</label>
                     <p class="text-sm text-gray-900">${record.result === 'error' ? '-' : `${record.confidence}%`}</p>
                 </div>
                 ${record.result !== 'error' && record.decisionMetrics ? `
@@ -822,11 +826,11 @@ Deepfake 检测报告
 
 检测结果:
     - 判定结果: ${record.result === 'real' ? '真实' : record.result === 'fake' ? '伪造' : '失败'}
-    - 置信度: ${record.result === 'error' ? '-' : `${record.confidence}%`}
+    - ${getPredictedConfidenceLabel()}: ${record.result === 'error' ? '-' : `${record.confidence}%`}
     - Fake 概率: ${escapeHtml(formatPercentFromProbability(record.decisionMetrics?.fake_probability))}
     - Real 概率: ${escapeHtml(formatPercentFromProbability(record.decisionMetrics?.real_probability))}
-    - 判定阈值: ${escapeHtml(formatPercentFromProbability(record.decisionMetrics?.confidence_threshold))}
-    - 阈值差值: ${escapeHtml(formatSignedPercentFromProbability(record.decisionMetrics?.threshold_gap))}
+    - ${escapeHtml(getDecisionThresholdLabel(record.decisionMetrics))}: ${escapeHtml(formatPercentFromProbability(record.decisionMetrics?.confidence_threshold))}
+    - ${escapeHtml(getThresholdGapLabel(record.decisionMetrics))}: ${escapeHtml(formatSignedPercentFromProbability(record.decisionMetrics?.threshold_gap))}
     - 决策边际: ${escapeHtml(formatSignedPercentFromProbability(record.decisionMetrics?.decision_margin))}
     - 处理时间: ${record.processingTime || '-'} 秒
     ${record.type === 'video' ? `- 总帧数: ${record.totalFrames ?? '-'}\n    - 处理帧数: ${record.processedFrames ?? '-'}\n    - 时长: ${record.duration ?? '-'} 秒` : ''}
@@ -2582,17 +2586,38 @@ function formatSignedPercentFromProbability(value) {
     return `${percentValue >= 0 ? '+' : ''}${percentValue.toFixed(1)}%`;
 }
 
+function getPredictedConfidenceLabel() {
+    return '预测结果置信度';
+}
+
+function getDecisionThresholdLabel(decisionMetrics) {
+    return decisionMetrics?.threshold_applied_to_fake === false ? '判定阈值' : 'Fake 判定阈值';
+}
+
+function getThresholdGapLabel(decisionMetrics) {
+    return decisionMetrics?.threshold_applied_to_fake === false ? '阈值差值' : 'Fake 概率 - Fake 判定阈值';
+}
+
 function buildDecisionMetricItems(decisionMetrics) {
     if (!decisionMetrics) return [];
 
-    return [
+    const items = [
         { label: 'Fake 概率', value: formatPercentFromProbability(decisionMetrics.fake_probability) },
         { label: 'Real 概率', value: formatPercentFromProbability(decisionMetrics.real_probability) },
-        { label: '判定阈值', value: formatPercentFromProbability(decisionMetrics.confidence_threshold) },
-        { label: '阈值差值', value: formatSignedPercentFromProbability(decisionMetrics.threshold_gap) },
-        { label: '决策边际', value: formatSignedPercentFromProbability(decisionMetrics.decision_margin) },
-        { label: '预测类概率', value: formatPercentFromProbability(decisionMetrics.predicted_probability) }
+        { label: getDecisionThresholdLabel(decisionMetrics), value: formatPercentFromProbability(decisionMetrics.confidence_threshold) },
+        { label: getThresholdGapLabel(decisionMetrics), value: formatSignedPercentFromProbability(decisionMetrics.threshold_gap) },
+        { label: '预测结果置信度', value: formatPercentFromProbability(decisionMetrics.predicted_probability) },
+        { label: '决策边际', value: formatSignedPercentFromProbability(decisionMetrics.decision_margin) }
     ];
+
+    if (typeof decisionMetrics.threshold_applied_to_fake === 'boolean') {
+        items.splice(4, 0, {
+            label: '阈值作用对象',
+            value: decisionMetrics.threshold_applied_to_fake ? 'Fake 类' : '预测类'
+        });
+    }
+
+    return items;
 }
 
 function renderDecisionMetricGrid(decisionMetrics, columns = 'grid-cols-2 md:grid-cols-3') {
@@ -3023,7 +3048,7 @@ function viewHistoryDetail(index) {
                 </div>
                 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">置信度</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">${getPredictedConfidenceLabel()}</label>
                     <div class="flex items-center space-x-3">
                         <div class="flex-1 bg-gray-200 rounded-full h-2">
                             <div class="bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 h-2 rounded-full" 
@@ -3055,7 +3080,7 @@ function viewHistoryDetail(index) {
                     </h3>
                     <p class="text-sm text-blue-800">
                         本检测结果基于 ${formatHistoryModelLabel(record)} 模型进行分析，该模型在多个公开数据集上进行了训练，
-                        具有较高的准确率。置信度表示模型对判断结果的确定程度。
+                        具有较高的准确率。预测结果置信度表示模型对当前判定类别的概率。
                     </p>
                 </div>
             </div>
