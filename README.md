@@ -61,7 +61,7 @@ npm run dev
 打开浏览器访问 `http://localhost:3000`
 
 ### 4. 确保后端服务运行
-确保后端 API 服务在 `http://localhost:8000` 运行
+确保后端 API 服务在 `http://localhost:8000` 运行，或在 `config.js` 中改成你的实际地址
 
 ### 5. 本地前端联动远程后端
 如果前端在本地运行、后端在远程云主机运行，可通过 SSH 隧道把本地 `8000` 端口转发到远程后端：
@@ -70,7 +70,7 @@ npm run dev
 ssh -p 13114 -L 8000:127.0.0.1:8000 root@connect.westd.seetacloud.com
 ```
 
-建立隧道后，前端仍然使用 `http://localhost:8000/api/v1` 即可联动远程后端。
+建立隧道后，前端默认配置无需改动，仍然使用 `http://localhost:8000/api/v1` 即可联动远程后端。
 
 ## 📁 项目结构
 
@@ -87,13 +87,26 @@ deepfake-srtp-fronted/
 ## 🔧 配置说明
 
 ### API 配置
-在 `script.js` 中修改 API 基础 URL：
+前后端联动配置统一放在 `config.js`：
 ```javascript
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+window.__APP_CONFIG__ = {
+  API_BASE_URL: 'http://localhost:8000/api/v1'
+};
+```
+
+也可以拆开配置：
+
+```javascript
+window.__APP_CONFIG__ = {
+  API_SCHEME: 'http:',
+  API_HOST: 'localhost',
+  API_PORT: '8000',
+  API_V1_STR: '/api/v1'
+};
 ```
 
 ### 支持的文件格式
-- **图片**: JPG, JPEG, PNG, GIF, BMP, WEBP
+- **图片**: JPG, JPEG, PNG, BMP, TIFF
 - **视频**: MP4, AVI, MOV, MKV, WMV
 
 ### 文件大小限制
@@ -104,7 +117,7 @@ const API_BASE_URL = 'http://localhost:8000/api/v1';
 
 ### 1. 文件检测
 1. 在检测页面，点击上传区域或拖拽文件
-2. 选择检测模型（默认 VGG）
+2. 选择检测模型（只有 ready/deployed 的已登记模型才会作为默认可用选项；fallback-only 内置模型不会被自动选中）
 3. 点击"开始检测"按钮
 4. 等待检测完成，查看结果
 
@@ -186,7 +199,7 @@ Content-Type: multipart/form-data
 
 参数:
 - file: 上传的文件
-- model_type: 内置模型类型
+- model_type: 模型类型提示；只有存在 ready/deployed 的已登记模型时才会真正用于检测选择
 - model_id: 已保留模型的 ID（优先于 `model_type`）
 ```
 
@@ -197,6 +210,7 @@ GET /api/v1/detection/history
 - skip: 跳过记录数
 - limit: 限制记录数
 - prediction: 结果筛选
+- status: 按持久化或 legacy 推导状态筛选（如 `failed`）
 - model_type: 模型筛选
 ```
 
@@ -245,7 +259,7 @@ POST /api/v1/datasets/upload-folder
 ### 常见问题
 
 **Q: 无法连接到后端 API**
-A: 检查后端服务是否在 `http://localhost:8000` 运行
+A: 检查后端服务是否运行，并确认 `config.js` 里的 API 地址和后端实际地址一致
 
 **Q: 文件上传失败**
 A: 确认文件格式和大小符合要求
