@@ -1946,7 +1946,8 @@ async function loadTrainingJobs(options = {}) {
             const errorMessage = job.error_message || '';
             const epochHint = getTrainingEpochHint(job, progress, currentEpoch, totalEpochs ?? epochs);
             const preprocessingMarkup = buildTrainingPreprocessingMarkup(job);
-            const bestEpoch = job.results?.best_epoch;
+            const bestCheckpointSummary = getTrainingBestCheckpointSummary(job);
+            const bestEpoch = bestCheckpointSummary.bestEpoch;
             const sampleValidationAccuracy = formatAccuracy(job.results?.val_sample_accuracy);
             const sampleValidationLoss = formatLoss(job.results?.val_sample_loss);
             const validationVideoCount = job.results?.val_video_count ?? '-';
@@ -2201,7 +2202,8 @@ function renderTrainingDetailModal(job, metricsResponse) {
     const totalEpochs = job.total_epochs ?? job.parameters?.epochs ?? metricsResponse?.total_epochs ?? '-';
     const currentEpoch = job.current_epoch ?? metricsResponse?.completed_epochs ?? 0;
     const latestMetric = getLatestTrainingMetric(metricsResponse);
-    const bestMetric = getBestValidationMetric(metricsResponse);
+    const bestCheckpointSummary = getTrainingBestCheckpointSummary(job, metricsResponse);
+    const bestMetric = bestCheckpointSummary.metric;
     const phaseMessage = getTrainingPhaseMessage(job);
     const trainingDevice = (job.parameters?.training_device || 'auto').toUpperCase();
     const validationAccuracy = formatAccuracy(job.results?.val_accuracy);
@@ -2215,11 +2217,11 @@ function renderTrainingDetailModal(job, metricsResponse) {
     const latestValLoss = formatLoss(latestMetric?.val_loss ?? job.results?.val_loss);
     const latestSampleValAccuracy = formatAccuracy(latestMetric?.val_sample_accuracy ?? job.results?.val_sample_accuracy);
     const latestSampleValLoss = formatLoss(latestMetric?.val_sample_loss ?? job.results?.val_sample_loss);
-    const bestValAccuracy = formatAccuracy(bestMetric?.val_accuracy ?? job.results?.val_accuracy);
-    const bestValLoss = formatLoss(bestMetric?.val_loss ?? job.results?.val_loss);
-    const bestSampleValAccuracy = formatAccuracy(bestMetric?.val_sample_accuracy);
-    const bestSampleValLoss = formatLoss(bestMetric?.val_sample_loss);
-    const bestCheckpointScore = formatCheckpointSelectionScore(bestMetric?.checkpoint_selection_score ?? job.results?.checkpoint_selection_score);
+    const bestValAccuracy = formatAccuracy(bestCheckpointSummary.valAccuracy);
+    const bestValLoss = formatLoss(bestCheckpointSummary.valLoss);
+    const bestSampleValAccuracy = formatAccuracy(bestCheckpointSummary.valSampleAccuracy);
+    const bestSampleValLoss = formatLoss(bestCheckpointSummary.valSampleLoss);
+    const bestCheckpointScore = formatCheckpointSelectionScore(bestCheckpointSummary.selectionScore);
     const preprocessingMarkup = buildTrainingPreprocessingMarkup(job);
     const chartDownloadDisabled = !metricsResponse?.available;
 
@@ -2331,7 +2333,7 @@ function renderTrainingDetailModal(job, metricsResponse) {
                         </div>
                         <div class="rounded-2xl bg-slate-50 p-4">
                             <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Best Checkpoint</p>
-                            <p class="mt-2 text-slate-900">最佳 epoch: ${escapeHtml(String(bestMetric?.epoch ?? job.results?.best_epoch ?? '-'))}</p>
+                            <p class="mt-2 text-slate-900">最佳 epoch: ${escapeHtml(String(bestCheckpointSummary.bestEpoch ?? '-'))}</p>
                             <p class="mt-1 text-slate-900">checkpoint selection score: <span class="font-semibold text-slate-900">${bestCheckpointScore}</span></p>
                             <p class="mt-1 text-xs text-slate-500">后端按 checkpoint selection score 选取 checkpoint；同分时再比较视频级验证准确率与损失。</p>
                             <p class="mt-1">最佳视频级验证准确率: <span class="font-semibold text-slate-900">${bestValAccuracy}</span></p>
@@ -2998,31 +3000,99 @@ function getLatestTrainingMetric(metricsResponse) {
     return metrics.length ? metrics[metrics.length - 1] : null;
 }
 
-function getBestValidationMetric(metricsResponse) {
-    const metrics = metricsResponse?.metrics || [];
-    if (!metrics.length) return null;
-    return metrics.reduce((best, point) => {
-        if (!best) return point;
-        const pointSelectionScore = toFiniteNumber(point.checkpoint_selection_score, -Infinity);
-        const bestSelectionScore = toFiniteNumber(best.checkpoint_selection_score, -Infinity);
-        if (pointSelectionScore !== bestSelectionScore) {
-            return pointSelectionScore > bestSelectionScore ? point : best;
-        }
+function getTrainingCheckpointMinDelta(job, metricsResponse) {
+    const candidates = [
+        job?.parameters?.early_stopping_min_delta,
+        metricsResponse?.early_stopping_min_delta,
+        metricsResponse?.earlyStoppingMinDelta
+    ];
 
-        const pointValAccuracy = toFiniteNumber(point.val_accuracy, -Infinity);
-        const bestValAccuracy = toFiniteNumber(best.val_accuracy, -Infinity);
-        if (pointValAccuracy !== bestValAccuracy) {
-            return pointValAccuracy > bestValAccuracy ? point : best;
+    for (const candidate of candidates) {
+        const numericCandidate = toFiniteNumber(candidate, null);
+        if (numericCandidate !== null) {
+            return Math.max(0, numericCandidate);
         }
+    }
 
-        const pointValLoss = toFiniteNumber(point.val_loss, Infinity);
-        const bestValLoss = toFiniteNumber(best.val_loss, Infinity);
-        if (pointValLoss !== bestValLoss) {
-            return pointValLoss < bestValLoss ? point : best;
+    return 0.002;
+}
+
+function isTrainingCheckpointCandidateBetter(candidateMetric, bestMetric, minDelta) {
+    if (!candidateMetric) return false;
+    if (!bestMetric) return true;
+
+    const candidateSelectionScore = toFiniteNumber(candidateMetric.checkpoint_selection_score, -Infinity);
+    const bestSelectionScore = toFiniteNumber(bestMetric.checkpoint_selection_score, -Infinity);
+    if (bestSelectionScore < 0) {
+        return true;
+    }
+    if (candidateSelectionScore > bestSelectionScore + minDelta) {
+        return true;
+    }
+
+    const scoreGap = Math.abs(candidateSelectionScore - bestSelectionScore);
+    const candidateValAccuracy = toFiniteNumber(candidateMetric.val_accuracy, -Infinity);
+    const bestValAccuracy = toFiniteNumber(bestMetric.val_accuracy, -Infinity);
+    if (scoreGap <= minDelta && candidateValAccuracy > bestValAccuracy + minDelta) {
+        return true;
+    }
+
+    const accuracyGap = Math.abs(candidateValAccuracy - bestValAccuracy);
+    const candidateValLoss = toFiniteNumber(candidateMetric.val_loss, null);
+    if (accuracyGap <= minDelta && candidateValLoss !== null) {
+        const bestValLoss = toFiniteNumber(bestMetric.val_loss, null);
+        if (bestValLoss === null) {
+            return true;
         }
+        const lossDelta = Math.max(minDelta * 0.1, 1e-5);
+        return candidateValLoss < bestValLoss - lossDelta;
+    }
 
-        return best;
+    return false;
+}
+
+function selectBestTrainingMetric(metrics, minDelta) {
+    const metricPoints = Array.isArray(metrics) ? metrics : [];
+    return metricPoints.reduce((bestMetric, point) => {
+        return isTrainingCheckpointCandidateBetter(point, bestMetric, minDelta)
+            ? point
+            : bestMetric;
     }, null);
+}
+
+function getTrainingBestCheckpointSummary(job, metricsResponse) {
+    const metrics = Array.isArray(metricsResponse?.metrics) ? metricsResponse.metrics : [];
+    const recordedBestEpoch = toFiniteNumber(job?.results?.best_epoch, null);
+    const minDelta = getTrainingCheckpointMinDelta(job, metricsResponse);
+
+    let bestMetric = recordedBestEpoch === null
+        ? null
+        : metrics.find(point => toFiniteNumber(point?.epoch, null) === recordedBestEpoch) || null;
+
+    let selectionSource = bestMetric ? 'backend_recorded_best_epoch' : 'job_results';
+
+    if (!bestMetric && metrics.length) {
+        bestMetric = selectBestTrainingMetric(metrics, minDelta);
+        if (bestMetric) {
+            selectionSource = 'frontend_tolerance_mirror';
+        }
+    }
+
+    return {
+        metric: bestMetric,
+        bestEpoch: bestMetric?.epoch ?? (recordedBestEpoch ?? job?.results?.best_epoch ?? null),
+        selectionScore: bestMetric?.checkpoint_selection_score ?? job?.results?.checkpoint_selection_score ?? null,
+        valAccuracy: bestMetric?.val_accuracy ?? job?.results?.val_accuracy ?? null,
+        valLoss: bestMetric?.val_loss ?? job?.results?.val_loss ?? null,
+        valSampleAccuracy: bestMetric?.val_sample_accuracy ?? job?.results?.val_sample_accuracy ?? null,
+        valSampleLoss: bestMetric?.val_sample_loss ?? job?.results?.val_sample_loss ?? null,
+        selectionSource,
+        minDelta
+    };
+}
+
+function getBestValidationMetric(metricsResponse, options = {}) {
+    return getTrainingBestCheckpointSummary(options.job, metricsResponse).metric;
 }
 
 function formatDateTime(value) {

@@ -121,6 +121,33 @@ function loadFrontend({ location, appConfig } = {}) {
     return { context, elements };
 }
 
+function createTrainingDetailModalStub() {
+    const body = createElement();
+    return {
+        innerHTML: '',
+        className: '',
+        classList: {
+            add() {},
+            remove() {},
+            toggle() {}
+        },
+        addEventListener() {},
+        appendChild() {},
+        click() {},
+        remove() {},
+        querySelector(selector) {
+            if (selector === '#trainingDetailBody') {
+                return body;
+            }
+            return null;
+        },
+        querySelectorAll() {
+            return [];
+        },
+        body
+    };
+}
+
 async function testUploadAreaEscapesMaliciousFilename() {
     const { context, elements } = loadFrontend();
     const uploadContent = getOrCreateElement(elements, '.upload-content');
@@ -453,6 +480,122 @@ async function testPlainTextDetectionReportUsesSanitizedFilename() {
     assert(!anchor.download.includes(' '));
 }
 
+async function testTrainingBestCheckpointSummaryMirrorsToleranceAwareSelection() {
+    const { context } = loadFrontend();
+    const summary = context.getTrainingBestCheckpointSummary(
+        {
+            parameters: { early_stopping_min_delta: 0.002 },
+            results: {}
+        },
+        {
+            metrics: [
+                {
+                    epoch: 1,
+                    checkpoint_selection_score: 0.8,
+                    val_accuracy: 0.9,
+                    val_loss: 0.3,
+                    val_sample_accuracy: 0.88,
+                    val_sample_loss: 0.35
+                },
+                {
+                    epoch: 2,
+                    checkpoint_selection_score: 0.801,
+                    val_accuracy: 0.9,
+                    val_loss: 0.31,
+                    val_sample_accuracy: 0.89,
+                    val_sample_loss: 0.34
+                }
+            ]
+        }
+    );
+
+    assert.strictEqual(summary.bestEpoch, 1);
+    assert.strictEqual(summary.metric.epoch, 1);
+    assert.strictEqual(summary.selectionSource, 'frontend_tolerance_mirror');
+}
+
+async function testTrainingDetailUsesBackendRecordedBestCheckpointParity() {
+    const { context } = loadFrontend();
+    const modal = createTrainingDetailModalStub();
+
+    context.Chart = function Chart(_canvas, config) {
+        this.data = config.data;
+        this.options = config.options;
+        this.destroy = () => {};
+        this.update = () => {};
+        this.resize = () => {};
+    };
+    context.document.createElement = () => modal;
+
+    context.renderTrainingDetailModal(
+        {
+            id: 17,
+            name: 'Parity Review Job',
+            model_type: 'vit',
+            dataset_path: '/tmp/dataset',
+            status: 'completed',
+            progress: 100,
+            current_epoch: 2,
+            total_epochs: 2,
+            created_at: '2026-03-31T10:00:00Z',
+            started_at: '2026-03-31T10:01:00Z',
+            completed_at: '2026-03-31T10:02:00Z',
+            parameters: {
+                epochs: 2,
+                training_device: 'cpu',
+                batch_size: 8,
+                learning_rate: 0.0005,
+                early_stopping_min_delta: 0.002
+            },
+            results: {
+                best_epoch: 1,
+                checkpoint_selection_score: 0.8,
+                val_accuracy: 0.9,
+                val_loss: 0.3,
+                val_sample_accuracy: 0.88,
+                val_sample_loss: 0.35,
+                val_video_count: 12,
+                epochs_trained: 2,
+                model_path: '/tmp/model.pt'
+            }
+        },
+        {
+            available: true,
+            completed_epochs: 2,
+            total_epochs: 2,
+            metrics: [
+                {
+                    epoch: 1,
+                    train_accuracy: 0.86,
+                    train_loss: 0.42,
+                    val_accuracy: 0.9,
+                    val_loss: 0.3,
+                    val_sample_accuracy: 0.88,
+                    val_sample_loss: 0.35,
+                    val_video_count: 12,
+                    checkpoint_selection_score: 0.8,
+                    recorded_at: '2026-03-31T10:01:00Z'
+                },
+                {
+                    epoch: 2,
+                    train_accuracy: 0.87,
+                    train_loss: 0.39,
+                    val_accuracy: 0.9,
+                    val_loss: 0.31,
+                    val_sample_accuracy: 0.89,
+                    val_sample_loss: 0.34,
+                    val_video_count: 12,
+                    checkpoint_selection_score: 0.801,
+                    recorded_at: '2026-03-31T10:02:00Z'
+                }
+            ]
+        }
+    );
+
+    assert(modal.body.innerHTML.includes('最佳 epoch: 1'));
+    assert(modal.body.innerHTML.includes('checkpoint selection score: <span class="font-semibold text-slate-900">0.8000</span>'));
+}
+
 async function main() {
     await testUploadAreaEscapesMaliciousFilename();
     await testLoadDetectionModelsRequiresExplicitSelectionWithoutReadyDefault();
@@ -465,6 +608,8 @@ async function main() {
     await testPerformDetectionFailureRefreshesHistoryAndStats();
     await testHistoryDetailDescriptionAvoidsUnsupportedAccuracyClaims();
     await testPlainTextDetectionReportUsesSanitizedFilename();
+    await testTrainingBestCheckpointSummaryMirrorsToleranceAwareSelection();
+    await testTrainingDetailUsesBackendRecordedBestCheckpointParity();
     console.log('frontend static contract tests passed');
 }
 
