@@ -42,17 +42,19 @@
 ## 📋 系统要求
 
 - 现代浏览器（Chrome 80+、Firefox 75+、Safari 13+、Edge 80+）
-- 后端 API 服务运行在 `http://localhost:8000`
+- 本地开发时后端 API 默认运行在 `http://localhost:8000`，生产环境可通过 `config.js` 改成同源 `/api/v1` 或你的实际域名
 - 网络连接（用于加载 CDN 资源）
 
 ## 🚀 快速开始
+
+> 如果你要把前端和后端一起部署到 Ubuntu 空白远程机，请参考后端仓库中的完整部署指南：<https://github.com/180cmchn/deepfake-srtp/blob/main/docs/ubuntu-remote-deployment.md>
 
 ### 1. 安装依赖
 ```bash
 npm install
 ```
 
-### 2. 启动开发服务器
+### 2. 启动本地开发服务器
 ```bash
 npm run dev
 ```
@@ -61,7 +63,7 @@ npm run dev
 打开浏览器访问 `http://localhost:3000`
 
 ### 4. 确保后端服务运行
-确保后端 API 服务在 `http://localhost:8000` 运行，或在 `config.js` 中改成你的实际地址
+确保后端 API 服务在 `http://localhost:8000` 运行，或在 `config.js` 中改成你的实际地址。若是生产环境同源部署，推荐把 `API_BASE_URL` 设为 `/api/v1`。
 
 ### 5. 本地前端联动远程后端
 如果前端在本地运行、后端在远程云主机运行，可通过 SSH 隧道把本地 `8000` 端口转发到远程后端：
@@ -103,6 +105,30 @@ window.__APP_CONFIG__ = {
   API_PORT: '8000',
   API_V1_STR: '/api/v1'
 };
+```
+
+生产环境如果由 Nginx 同源反代后端，推荐直接写成：
+
+```javascript
+window.__APP_CONFIG__ = {
+  API_BASE_URL: '/api/v1'
+};
+```
+
+完整的 Ubuntu 远程部署、Nginx 反代和后端 systemd 配置请参考：<https://github.com/180cmchn/deepfake-srtp/blob/main/docs/ubuntu-remote-deployment.md>
+
+## ✅ 静态校验
+
+```bash
+# 运行前端静态契约测试
+npm run test:static
+
+# 语法检查
+node --check config.js
+node --check script.js
+
+# 当前 build 只会验证静态文件已就绪，不会生成 dist/
+npm run build
 ```
 
 ### 支持的文件格式
