@@ -539,6 +539,7 @@ function displayResults(results) {
 async function loadDetectionModels() {
     const modelSelect = document.getElementById('modelSelect');
     const modelFilter = document.getElementById('modelFilter');
+    const trainingModelTypeSelect = document.getElementById('trainingModelType');
 
     try {
         const response = await axios.get(`${API_BASE_URL}/detection/models`);
@@ -546,6 +547,10 @@ async function loadDetectionModels() {
         const defaultModel = response.data.default || {};
         detectionModelTypeCache = response.data.model_types || [];
         detectionModelCache = models;
+
+        if (trainingModelTypeSelect) {
+            populateTrainingModelTypeOptions(trainingModelTypeSelect, detectionModelTypeCache);
+        }
 
         if (!models.length) {
             return;
@@ -579,6 +584,21 @@ async function loadDetectionModels() {
     } catch (error) {
         showNotification('加载模型列表失败：' + getApiErrorMessage(error), 'error');
     }
+}
+
+function populateTrainingModelTypeOptions(select, modelTypes) {
+    if (!select) return;
+
+    const previousValue = select.value;
+    const availableModelTypes = Array.isArray(modelTypes)
+        ? modelTypes.filter(Boolean)
+        : [];
+
+    select.innerHTML = `
+        <option value="">选择模型类型</option>
+        ${availableModelTypes.map(modelType => `<option value="${escapeHtml(modelType)}">${escapeHtml(formatModelLabel(modelType))}</option>`).join('')}
+    `;
+    select.value = availableModelTypes.includes(previousValue) ? previousValue : '';
 }
 
 async function loadDetectionStats() {
@@ -2956,12 +2976,30 @@ function hasTrainingPreprocessingInfo(job) {
 }
 
 function getTrainingEpochHint(job, progress, currentEpoch, totalEpochs) {
+    const etaSuffix = typeof job?.estimated_time_remaining === 'number' && job.estimated_time_remaining >= 0
+        ? ` · 预计剩余 ${formatTrainingEta(job.estimated_time_remaining)}`
+        : '';
     if (job.status === 'running' && (currentEpoch === 0 || currentEpoch === '0') && hasTrainingPreprocessingInfo(job)) {
-        return '数据集预处理中';
+        return `数据集预处理中${etaSuffix}`;
     }
     const normalizedCurrentEpoch = currentEpoch === null || currentEpoch === undefined ? '-' : currentEpoch;
     const normalizedTotalEpochs = totalEpochs === null || totalEpochs === undefined ? (job.parameters?.epochs ?? '-') : totalEpochs;
-    return `Epoch ${normalizedCurrentEpoch}/${normalizedTotalEpochs}`;
+    return `Epoch ${normalizedCurrentEpoch}/${normalizedTotalEpochs}${etaSuffix}`;
+}
+
+function formatTrainingEta(totalSeconds) {
+    const seconds = Math.max(0, Math.round(Number(totalSeconds) || 0));
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+
+    if (hours > 0) {
+        return `${hours}小时${minutes}分钟`;
+    }
+    if (minutes > 0) {
+        return `${minutes}分钟${remainingSeconds}秒`;
+    }
+    return `${remainingSeconds}秒`;
 }
 
 function buildTrainingPreprocessingMarkup(job) {
@@ -3109,6 +3147,7 @@ function formatModelLabel(value) {
         lrcn: 'LRCN',
         swin: 'Swin Transformer',
         vit: 'Vision Transformer',
+        yolo: 'YOLO',
         resnet: 'ResNet'
     };
     return mapping[value] || value.toUpperCase();

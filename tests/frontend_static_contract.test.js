@@ -5,6 +5,7 @@ const vm = require('vm');
 
 const frontendRoot = path.resolve(__dirname, '..');
 const configSource = fs.readFileSync(path.join(frontendRoot, 'config.js'), 'utf8');
+const indexHtmlSource = fs.readFileSync(path.join(frontendRoot, 'index.html'), 'utf8');
 const scriptSource = fs.readFileSync(path.join(frontendRoot, 'script.js'), 'utf8');
 
 function createElement() {
@@ -168,8 +169,11 @@ async function testLoadDetectionModelsRequiresExplicitSelectionWithoutReadyDefau
     const { context, elements } = loadFrontend();
     const modelSelect = elements.get('modelSelect') || createElement();
     const modelFilter = elements.get('modelFilter') || createElement();
+    const trainingModelType = elements.get('trainingModelType') || createElement();
     elements.set('modelSelect', modelSelect);
     elements.set('modelFilter', modelFilter);
+    elements.set('trainingModelType', trainingModelType);
+    trainingModelType.value = 'vit';
 
     context.axios.get = async () => ({
         data: {
@@ -193,7 +197,7 @@ async function testLoadDetectionModelsRequiresExplicitSelectionWithoutReadyDefau
                 is_ready: false,
                 selection_policy: 'explicit_ready_model_required'
             },
-            model_types: ['vit']
+            model_types: ['vit', 'yolo']
         }
     });
 
@@ -202,6 +206,88 @@ async function testLoadDetectionModelsRequiresExplicitSelectionWithoutReadyDefau
     assert(modelSelect.innerHTML.startsWith('<option value="" selected>请选择可用模型</option>'));
     assert(modelSelect.innerHTML.includes('&lt;b&gt;builtin vit&lt;/b&gt;'));
     assert.strictEqual(modelSelect.value, '');
+    assert(trainingModelType.innerHTML.includes('<option value="">选择模型类型</option>'));
+    assert(trainingModelType.innerHTML.includes('<option value="vit">Vision Transformer</option>'));
+    assert(trainingModelType.innerHTML.includes('<option value="yolo">YOLO</option>'));
+    assert.strictEqual(trainingModelType.value, 'vit');
+}
+
+async function testTrainingModelTypeSelectMarkupUsesPlaceholderOnly() {
+    const trainingModelTypeSelectMarkup = indexHtmlSource.match(/<select id="trainingModelType"[\s\S]*?<\/select>/);
+
+    assert(trainingModelTypeSelectMarkup);
+    assert(trainingModelTypeSelectMarkup[0].includes('<option value="">选择模型类型</option>'));
+    assert(!trainingModelTypeSelectMarkup[0].includes('<option value="vgg">'));
+}
+
+async function testLoadDetectionModelsClearsUnsupportedTrainingModelSelection() {
+    const { context, elements } = loadFrontend();
+    const trainingModelType = elements.get('trainingModelType') || createElement();
+    elements.set('trainingModelType', trainingModelType);
+    trainingModelType.value = 'resnet';
+
+    context.axios.get = async () => ({
+        data: {
+            models: [],
+            default: {
+                model_id: null,
+                model_type: null,
+                source: null,
+                is_ready: false,
+                selection_policy: 'explicit_ready_model_required'
+            },
+            model_types: ['vit', 'yolo']
+        }
+    });
+
+    await context.loadDetectionModels();
+
+    assert.strictEqual(trainingModelType.value, '');
+    assert(trainingModelType.innerHTML.includes('<option value="yolo">YOLO</option>'));
+}
+
+async function testFormatModelLabelUsesYoloDisplayName() {
+    const { context } = loadFrontend();
+
+    assert.strictEqual(context.formatModelLabel('yolo'), 'YOLO');
+    assert.strictEqual(
+        context.formatHistoryModelLabel({ model_name: 'Built-in Model', model_type: 'yolo' }),
+        'YOLO'
+    );
+}
+
+async function testTrainingEpochHintIncludesEtaWhenAvailable() {
+    const { context } = loadFrontend();
+
+    assert.strictEqual(
+        context.getTrainingEpochHint(
+            {
+                status: 'running',
+                estimated_time_remaining: 125,
+                parameters: { epochs: 10 }
+            },
+            50,
+            3,
+            10
+        ),
+        'Epoch 3/10 · 预计剩余 2分钟5秒'
+    );
+
+    assert.strictEqual(
+        context.getTrainingEpochHint(
+            {
+                status: 'running',
+                estimated_time_remaining: 3720,
+                preprocessing_stage: 'scan_dataset',
+                preprocessing_progress: 15,
+                parameters: { epochs: 10 }
+            },
+            10,
+            0,
+            10
+        ),
+        '数据集预处理中 · 预计剩余 1小时2分钟'
+    );
 }
 
 async function testResolveApiBaseUrlHonorsExplicitAndComposedConfig() {
@@ -599,6 +685,10 @@ async function testTrainingDetailUsesBackendRecordedBestCheckpointParity() {
 async function main() {
     await testUploadAreaEscapesMaliciousFilename();
     await testLoadDetectionModelsRequiresExplicitSelectionWithoutReadyDefault();
+    await testTrainingModelTypeSelectMarkupUsesPlaceholderOnly();
+    await testLoadDetectionModelsClearsUnsupportedTrainingModelSelection();
+    await testFormatModelLabelUsesYoloDisplayName();
+    await testTrainingEpochHintIncludesEtaWhenAvailable();
     await testResolveApiBaseUrlHonorsExplicitAndComposedConfig();
     await testStructuredApiErrorMessageUsesMessageAndRecordId();
     await testDisplayResultsEscapesFilenameAndModel();
