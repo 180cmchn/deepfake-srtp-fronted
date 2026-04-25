@@ -682,6 +682,116 @@ async function testTrainingDetailUsesBackendRecordedBestCheckpointParity() {
     assert(modal.body.innerHTML.includes('checkpoint selection score: <span class="font-semibold text-slate-900">0.8000</span>'));
 }
 
+async function testTrainingDetailStillOpensWhenEpochMetricsFail() {
+    const { context } = loadFrontend();
+    const modal = createTrainingDetailModalStub();
+    let closed = false;
+    let notificationMessage = null;
+
+    context.document.createElement = () => modal;
+    context.showNotification = (message) => {
+        notificationMessage = message;
+    };
+    context.closeTrainingDetailModal = () => {
+        closed = true;
+    };
+    context.axios.get = async (url) => {
+        if (url.endsWith('/training/jobs/5')) {
+            return {
+                data: {
+                    id: 5,
+                    name: 'Video Hybrid Job',
+                    model_type: 'vit',
+                    dataset_path: '/tmp/dataset',
+                    status: 'running',
+                    progress: 45,
+                    current_epoch: 3,
+                    total_epochs: 10,
+                    created_at: '2026-03-31T10:00:00Z',
+                    started_at: '2026-03-31T10:01:00Z',
+                    parameters: { epochs: 10, training_device: 'cpu', batch_size: 8, learning_rate: 0.0005 },
+                    results: {}
+                }
+            };
+        }
+        if (url.endsWith('/training/jobs/5/epoch-metrics')) {
+            throw { response: { data: { detail: 'metrics failed' } } };
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+    };
+
+    await context.refreshTrainingDetailModal(5);
+
+    assert.strictEqual(closed, false);
+    assert.strictEqual(notificationMessage, '训练详情已打开，但训练曲线加载失败：metrics failed');
+    assert(modal.body.innerHTML.includes('Video Hybrid Job'));
+    assert(modal.body.innerHTML.includes('训练曲线暂时不可用：metrics failed'));
+}
+
+async function testTrainingDetailClosesWhenPrimaryRequestFails() {
+    const { context } = loadFrontend();
+    let closed = false;
+    let notificationMessage = null;
+
+    context.showNotification = (message) => {
+        notificationMessage = message;
+    };
+    context.closeTrainingDetailModal = () => {
+        closed = true;
+    };
+    context.axios.get = async (url) => {
+        if (url.endsWith('/training/jobs/9')) {
+            throw { response: { data: { detail: 'job missing' } } };
+        }
+        return { data: {} };
+    };
+
+    await context.refreshTrainingDetailModal(9);
+
+    assert.strictEqual(closed, true);
+    assert.strictEqual(notificationMessage, '获取详情失败：job missing');
+}
+
+async function testTrainingDetailSilentRefreshSuppressesMetricsWarning() {
+    const { context } = loadFrontend();
+    const modal = createTrainingDetailModalStub();
+    let notificationMessage = null;
+
+    context.document.createElement = () => modal;
+    context.showNotification = (message) => {
+        notificationMessage = message;
+    };
+    context.axios.get = async (url) => {
+        if (url.endsWith('/training/jobs/7')) {
+            return {
+                data: {
+                    id: 7,
+                    name: 'Silent Refresh Job',
+                    model_type: 'vit',
+                    dataset_path: '/tmp/dataset',
+                    status: 'running',
+                    progress: 60,
+                    current_epoch: 4,
+                    total_epochs: 10,
+                    created_at: '2026-03-31T10:00:00Z',
+                    started_at: '2026-03-31T10:01:00Z',
+                    parameters: { epochs: 10, training_device: 'cpu', batch_size: 8, learning_rate: 0.0005 },
+                    results: {}
+                }
+            };
+        }
+        if (url.endsWith('/training/jobs/7/epoch-metrics')) {
+            throw { response: { data: { detail: 'metrics failed' } } };
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+    };
+
+    await context.refreshTrainingDetailModal(7, { silent: true });
+
+    assert.strictEqual(notificationMessage, null);
+    assert(modal.body.innerHTML.includes('Silent Refresh Job'));
+}
+
 async function main() {
     await testUploadAreaEscapesMaliciousFilename();
     await testLoadDetectionModelsRequiresExplicitSelectionWithoutReadyDefault();
@@ -700,6 +810,9 @@ async function main() {
     await testPlainTextDetectionReportUsesSanitizedFilename();
     await testTrainingBestCheckpointSummaryMirrorsToleranceAwareSelection();
     await testTrainingDetailUsesBackendRecordedBestCheckpointParity();
+    await testTrainingDetailStillOpensWhenEpochMetricsFail();
+    await testTrainingDetailClosesWhenPrimaryRequestFails();
+    await testTrainingDetailSilentRefreshSuppressesMetricsWarning();
     console.log('frontend static contract tests passed');
 }
 
