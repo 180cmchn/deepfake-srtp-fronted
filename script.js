@@ -158,13 +158,6 @@ function initializeFileUpload() {
     
     if (!uploadArea || !fileInput) return;
     
-    // 点击上传区域
-    uploadArea.addEventListener('click', function(e) {
-        if (e.target.tagName !== 'BUTTON') {
-            fileInput.click();
-        }
-    });
-    
     // 拖拽功能
     uploadArea.addEventListener('dragover', function(e) {
         e.preventDefault();
@@ -2124,11 +2117,33 @@ async function viewTrainingJob(jobId) {
 
 async function refreshTrainingDetailModal(jobId, options = {}) {
     try {
-        const [jobResponse, metricsResponse] = await Promise.all([
-            axios.get(`${API_BASE_URL}/training/jobs/${jobId}`),
-            axios.get(`${API_BASE_URL}/training/jobs/${jobId}/epoch-metrics`)
-        ]);
-        renderTrainingDetailModal(jobResponse.data, metricsResponse.data);
+        const metricsPromise = axios
+            .get(`${API_BASE_URL}/training/jobs/${jobId}/epoch-metrics`)
+            .then(response => ({ ok: true, data: response.data }))
+            .catch(error => ({ ok: false, error }));
+        const jobResponse = await axios.get(`${API_BASE_URL}/training/jobs/${jobId}`);
+        const job = jobResponse.data;
+        let metricsResponse = null;
+        const metricsResult = await metricsPromise;
+        if (metricsResult.ok) {
+            metricsResponse = metricsResult.data;
+        } else {
+            metricsResponse = {
+                job_id: job.id,
+                job_name: job.name,
+                model_type: job.model_type,
+                total_epochs: job.total_epochs ?? job.parameters?.epochs ?? null,
+                completed_epochs: job.current_epoch ?? 0,
+                available: false,
+                metrics: [],
+                load_error_message: getApiErrorMessage(metricsResult.error)
+            };
+            if (!options.silent) {
+                showNotification(`训练详情已打开，但训练曲线加载失败：${metricsResponse.load_error_message}`, 'warning');
+            }
+        }
+
+        renderTrainingDetailModal(job, metricsResponse);
     } catch (error) {
         closeTrainingDetailModal();
         if (!options.silent) {
@@ -2244,6 +2259,7 @@ function renderTrainingDetailModal(job, metricsResponse) {
     const bestCheckpointScore = formatCheckpointSelectionScore(bestCheckpointSummary.selectionScore);
     const preprocessingMarkup = buildTrainingPreprocessingMarkup(job);
     const chartDownloadDisabled = !metricsResponse?.available;
+    const metricsLoadError = metricsResponse?.load_error_message || null;
 
     body.innerHTML = `
         <div class="space-y-6">
@@ -2337,6 +2353,7 @@ function renderTrainingDetailModal(job, metricsResponse) {
                     <div class="mt-5 h-80">
                         <canvas id="trainingEpochChartCanvas"></canvas>
                     </div>
+                    ${metricsLoadError ? `<div class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">训练曲线暂时不可用：${escapeHtml(metricsLoadError)}</div>` : ''}
                     ${metricsResponse?.available ? '' : '<p class="mt-4 text-sm text-slate-500">当前还没有可展示的 epoch 历史，训练开始并进入 epoch 后会自动出现。</p>'}
                 </div>
 
