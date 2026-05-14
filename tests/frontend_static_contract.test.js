@@ -41,8 +41,13 @@ function getOrCreateElement(elements, key) {
 
 function loadFrontend({ location, appConfig } = {}) {
     const elements = new Map();
+    const documentEventHandlers = new Map();
     const document = {
-        addEventListener() {},
+        addEventListener(eventName, handler) {
+            const handlers = documentEventHandlers.get(eventName) || [];
+            handlers.push(handler);
+            documentEventHandlers.set(eventName, handlers);
+        },
         getElementById(id) {
             return getOrCreateElement(elements, id);
         },
@@ -119,7 +124,7 @@ function loadFrontend({ location, appConfig } = {}) {
     vm.createContext(context);
     vm.runInContext(configSource, context);
     vm.runInContext(scriptSource, context);
-    return { context, elements };
+    return { context, elements, documentEventHandlers };
 }
 
 function createTrainingDetailModalStub() {
@@ -792,6 +797,46 @@ async function testTrainingDetailSilentRefreshSuppressesMetricsWarning() {
     assert(modal.body.innerHTML.includes('Silent Refresh Job'));
 }
 
+async function testEscapeUsesTrackedModalClosersAndPreservesReusableDetailButtons() {
+    const { context, documentEventHandlers } = loadFrontend();
+    let trainingClosed = 0;
+    let modelClosed = 0;
+    let genericRemoved = 0;
+
+    const genericModal = createElement();
+    genericModal.remove = () => {
+        genericRemoved += 1;
+    };
+
+    context.closeTrainingDetailModal = () => {
+        trainingClosed += 1;
+    };
+    context.closeModelDetailModal = () => {
+        modelClosed += 1;
+    };
+    context.document.querySelectorAll = () => [genericModal];
+
+    const keydownHandlers = documentEventHandlers.get('keydown') || [];
+    keydownHandlers.forEach(handler => handler({ key: 'Escape', ctrlKey: false, metaKey: false }));
+
+    assert.strictEqual(trainingClosed, 1);
+    assert.strictEqual(modelClosed, 1);
+    assert.strictEqual(genericRemoved, 1);
+}
+
+async function testTrainingDetailModalReuseDoesNotRegisterExtraEscapeHandlers() {
+    const { context, documentEventHandlers } = loadFrontend();
+    const modal = createTrainingDetailModalStub();
+    context.document.createElement = () => modal;
+
+    const initialKeydownCount = (documentEventHandlers.get('keydown') || []).length;
+    context.ensureTrainingDetailModal();
+    context.ensureTrainingDetailModal();
+    const finalKeydownCount = (documentEventHandlers.get('keydown') || []).length;
+
+    assert.strictEqual(finalKeydownCount, initialKeydownCount);
+}
+
 async function main() {
     await testUploadAreaEscapesMaliciousFilename();
     await testLoadDetectionModelsRequiresExplicitSelectionWithoutReadyDefault();
@@ -813,6 +858,8 @@ async function main() {
     await testTrainingDetailStillOpensWhenEpochMetricsFail();
     await testTrainingDetailClosesWhenPrimaryRequestFails();
     await testTrainingDetailSilentRefreshSuppressesMetricsWarning();
+    await testEscapeUsesTrackedModalClosersAndPreservesReusableDetailButtons();
+    await testTrainingDetailModalReuseDoesNotRegisterExtraEscapeHandlers();
     console.log('frontend static contract tests passed');
 }
 

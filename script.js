@@ -2181,12 +2181,6 @@ function ensureTrainingDetailModal() {
         }
     });
 
-    document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && trainingDetailModal && !trainingDetailModal.classList.contains('hidden')) {
-            closeTrainingDetailModal();
-        }
-    });
-
     document.body.appendChild(modal);
     trainingDetailModal = modal;
     return modal;
@@ -3554,8 +3548,15 @@ document.addEventListener('keydown', function(e) {
     // Escape 关闭加载提示
     if (e.key === 'Escape') {
         showLoading(false);
-        // 关闭所有模态框
+        closeTrainingDetailModal();
+        closeModelDetailModal();
+
         const modals = document.querySelectorAll('.fixed.inset-0');
-        modals.forEach(modal => modal.remove());
+        modals.forEach(modal => {
+            if (modal === trainingDetailModal || modal === modelDetailModal) {
+                return;
+            }
+            modal.remove();
+        });
     }
 });
